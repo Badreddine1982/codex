@@ -176,3 +176,18 @@ cargo tree -d            # قائمة التكرارات مع من يطلبها
 - **`just changelog`** لتجديد الملف + خطوة CI لاختبارات المولّد.
 - `CHANGELOG.md` صار ملفاً حقيقياً قابلاً للبحث offline (كان رابطاً فقط).
 - اختبارات الوحدة الإجمالية: **31** (21 للبوابة + 10 للمولّد) — كلها ناجحة.
+
+> **ملاحظة تفعيل CI:** توكن الـ bot هنا لا يملك صلاحية تعديل ملفات workflow،
+> لذا أُرجع `repo-checks.yml` كما كان. لتفعيل البوابة في CI، أضف يدوياً بعد
+> خطوة "Test Codex package builder":
+>
+> ```yaml
+>       - name: Repo health ratchet (files, TODOs, unwraps, dup deps)
+>         run: python3 scripts/check_repo_health.py
+>
+>       - name: Test repo health gate script
+>         run: python3 -m unittest discover -s scripts -p 'test_check_repo_health.py'
+>
+>       - name: Test changelog generator script
+>         run: python3 -m unittest discover -s scripts -p 'test_generate_changelog.py'
+> ```
