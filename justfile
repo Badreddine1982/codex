@@ -91,6 +91,27 @@ test *args:
 test-github-scripts:
     {{ python }} -m unittest discover -s {{ justfile_directory() }}/.github/scripts -p 'test_*.py'
 
+# Enforce repo health ratchet: no new-or-grown oversized Rust files.
+repo-health:
+    {{ python }} {{ justfile_directory() }}/scripts/check_repo_health.py
+
+# Re-snapshot the oversized-file baseline (only after shrinking files or for
+# reviewed, deliberate additions).
+repo-health-update:
+    {{ python }} {{ justfile_directory() }}/scripts/check_repo_health.py --update-baseline
+
+# Print the report-only repo health dashboard (unwraps, TODOs, dup deps).
+repo-health-metrics:
+    {{ python }} {{ justfile_directory() }}/scripts/check_repo_health.py --metrics
+
+# Print production TODO mentions grouped by owner tag.
+todos:
+    {{ python }} {{ justfile_directory() }}/scripts/check_repo_health.py --todos
+
+# Regenerate CHANGELOG.md from git history (conventional + GitHub subjects).
+changelog *args:
+    {{ python }} {{ justfile_directory() }}/scripts/generate_changelog.py {{ args }}
+
 # Run explicit workspace benchmark targets.
 bench *args:
     cargo bench --workspace --bench '*' {args}
