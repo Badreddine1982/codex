@@ -29,6 +29,12 @@ jobs:
       - name: Test Codex package builder
         run: python3 -m unittest discover -s scripts/codex_package -p 'test_*.py'
 
+      - name: Repo health ratchet (no new-or-grown oversized Rust files)
+        run: python3 scripts/check_repo_health.py
+
+      - name: Test repo health gate script
+        run: python3 -m unittest discover -s scripts -p 'test_check_repo_health.py'
+
       - name: Test standalone installer
         run: python3 -m unittest discover -s scripts/install -p 'test_*.py'
 
