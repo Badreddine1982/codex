@@ -1,5 +1,6 @@
 {
-  "comment": "Ratchet snapshot of oversized Rust files and TODO/FIXME/HACK count. Regenerate with `python3 scripts/check_repo_health.py --update-baseline` ONLY to record deliberate additions or after shrinking/deleting files \u2014 never to make a failing check pass without review.",
+  "comment": "Ratchet snapshot of oversized Rust files and repo health metrics. Regenerate with `python3 scripts/check_repo_health.py --update-baseline` ONLY to record deliberate additions or after improvements \u2014 never to make a failing check pass without review.",
+  "duplicate_deps_count": 95,
   "files": {
     "agent-identity/src/lib.rs": 1000,
     "analytics/src/events.rs": 1447,
@@ -241,5 +242,6 @@
     "windows-sandbox-rs/src/lib.rs": 871,
     "windows-sandbox-rs/src/setup.rs": 2301
   },
-  "todo_count": 229
+  "todo_count": 229,
+  "unwrap_count": 1179
 }

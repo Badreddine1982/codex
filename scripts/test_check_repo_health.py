@@ -192,5 +192,79 @@ class TestTodoReport(unittest.TestCase):
         self.assertEqual(groups["(untagged)"], 1)
 
 
+class TestMetricRatchets(unittest.TestCase):
+    def setUp(self) -> None:
+        self.ws = WorkspaceFixture("metrics")
+
+    def baseline_with(self, metrics: dict[str, int]):
+        import json
+
+        path = self.ws.root / "b.json"
+        path.write_text(json.dumps({**metrics, "files": {}}), encoding="utf-8")
+        return path
+
+    def test_new_unwrap_fails(self) -> None:
+        self.ws.add("core/src/lib.rs", 10).write_text(
+            "let x = y.unwrap();\nlet z = w.unwrap();\n", encoding="utf-8"
+        )
+        rc = check_repo_health.main(
+            [
+                "--root", str(self.ws.root),
+                "--baseline", str(self.baseline_with({"unwrap_count": 1})),
+            ]
+        )
+        self.assertEqual(rc, 1)
+
+    def test_unwrap_at_baseline_passes(self) -> None:
+        self.ws.add("core/src/lib.rs", 10).write_text(
+            "let x = y.unwrap();\n", encoding="utf-8"
+        )
+        rc = check_repo_health.main(
+            [
+                "--root", str(self.ws.root),
+                "--baseline", str(self.baseline_with({"unwrap_count": 1})),
+            ]
+        )
+        self.assertEqual(rc, 0)
+
+    def test_unwraps_in_test_files_ignored(self) -> None:
+        self.ws.add("core/src/lib_tests.rs", 10).write_text(
+            "let a = b.unwrap();\nlet c = d.unwrap();\n", encoding="utf-8"
+        )
+        rc = check_repo_health.main(
+            [
+                "--root", str(self.ws.root),
+                "--baseline", str(self.baseline_with({"unwrap_count": 0})),
+            ]
+        )
+        self.assertEqual(rc, 0)
+
+    def test_duplicate_deps_counted(self) -> None:
+        lock = self.ws.root / "Cargo.lock"
+        lock.write_text(
+            '[[package]]\nname = "rand"\nversion = "1"\n'
+            '[[package]]\nname = "rand"\nversion = "2"\n'
+            '[[package]]\nname = "serde"\nversion = "1"\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(check_repo_health.count_duplicate_deps(self.ws.root), 1)
+
+    def test_new_duplicate_dep_fails(self) -> None:
+        self.ws.root.joinpath("Cargo.lock").write_text(
+            'name = "rand"\nname = "rand"\nname = "serde"\nname = "serde"\n',
+            encoding="utf-8",
+        )
+        rc = check_repo_health.main(
+            [
+                "--root", str(self.ws.root),
+                "--baseline", str(self.baseline_with({"duplicate_deps_count": 1})),
+            ]
+        )
+        self.assertEqual(rc, 1)
+
+    def test_missing_cargo_lock_is_zero(self) -> None:
+        self.assertEqual(check_repo_health.count_duplicate_deps(self.ws.root), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

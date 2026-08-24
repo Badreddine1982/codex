@@ -124,25 +124,26 @@ def load_baseline(path: Path) -> dict[str, int]:
     return {str(k): int(v) for k, v in data.get("files", {}).items()}
 
 
-def load_todo_baseline(path: Path) -> int | None:
-    """Read the ratcheted TODO count from the baseline, if recorded."""
+METRIC_KEYS = ("todo_count", "unwrap_count", "duplicate_deps_count")
+
+
+def load_metric_baselines(path: Path) -> dict[str, int]:
+    """Read ratcheted metric ceilings from the baseline (missing = skipped)."""
     if not path.exists():
-        return None
+        return {}
     data = json.loads(path.read_text(encoding="utf-8"))
-    value = data.get("todo_count")
-    return int(value) if value is not None else None
+    return {k: int(data[k]) for k in METRIC_KEYS if data.get(k) is not None}
 
 
-def write_baseline(path: Path, oversized: dict[str, int], todo_count: int) -> None:
+def write_baseline(path: Path, oversized: dict[str, int], metrics: dict[str, int]) -> None:
     payload = {
         "comment": (
-            "Ratchet snapshot of oversized Rust files and TODO/FIXME/HACK "
-            "count. Regenerate with `python3 scripts/check_repo_health.py "
+            "Ratchet snapshot of oversized Rust files and repo health "
+            "metrics. Regenerate with `python3 scripts/check_repo_health.py "
             "--update-baseline` ONLY to record deliberate additions or after "
-            "shrinking/deleting files — never to make a failing check pass "
-            "without review."
+            "improvements — never to make a failing check pass without review."
         ),
-        "todo_count": todo_count,
+        **metrics,
         "files": oversized,
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -171,6 +172,28 @@ def count_todos(root: Path) -> int:
     return total
 
 
+def count_unwraps(root: Path) -> int:
+    """Count production ``.unwrap()`` calls (panics) in non-test sources."""
+    total = 0
+    for path in iter_rust_files(root):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        total += len(_UNWRAP_RE.findall(text))
+    return total
+
+
+def count_duplicate_deps(root: Path) -> int:
+    """Count dependency names appearing more than once in Cargo.lock.
+
+    Duplicate versions inflate compile times and binary size; cargo-deny
+    reports the same signal but is not wired to fail CI today.
+    """
+    lock = root / "Cargo.lock"
+    if not lock.exists():
+        return 0
+    names = re.findall(r'^name = "(.+)"$', lock.read_text(encoding="utf-8"), re.M)
+    return sum(1 for n in set(names) if names.count(n) > 1)
+
+
 def todo_report(root: Path) -> dict[str, int]:
     """Group TODO mentions by owner tag (e.g. ``TODO(anp)`` -> ``anp``)."""
     groups: dict[str, int] = {}
@@ -191,24 +214,25 @@ def print_todos(root: Path) -> None:
         print(f"  {tag:14} {count}")
 
 
+def duplicate_deps_report(root: Path) -> dict[str, int]:
+    """Return ``{dep_name: version_count}`` for duplicated Cargo.lock deps."""
+    lock = root / "Cargo.lock"
+    if not lock.exists():
+        return {}
+    names = re.findall(r'^name = "(.+)"$', lock.read_text(encoding="utf-8"), re.M)
+    return {
+        n: c for n, c in ((n, names.count(n)) for n in set(names)) if c > 1
+    }
+
+
 def print_metrics(root: Path) -> None:
     """Report-only health dashboard for trend tracking."""
-    unwrap_count = 0
-    file_count = 0
-    for path in iter_rust_files(root):
-        file_count += 1
-        text = path.read_text(encoding="utf-8", errors="replace")
-        unwrap_count += len(_UNWRAP_RE.findall(text))
-
-    duplicates: dict[str, int] = {}
-    lock = root / "Cargo.lock"
-    if lock.exists():
-        names = re.findall(r'^name = "(.+)"$', lock.read_text(encoding="utf-8"), re.M)
-        duplicates = {n: c for n, c in ((n, names.count(n)) for n in set(names)) if c > 1}
+    file_count = sum(1 for _ in iter_rust_files(root))
+    duplicates = duplicate_deps_report(root)
 
     print("Repo health metrics (report-only):")
     print(f"  non-test Rust files scanned : {file_count}")
-    print(f"  production .unwrap()        : {unwrap_count}")
+    print(f"  production .unwrap()        : {count_unwraps(root)}")
     print(f"  TODO/FIXME/HACK mentions    : {count_todos(root)}")
     print(f"  duplicated Cargo.lock deps  : {len(duplicates)}")
     for name, count in sorted(duplicates.items(), key=lambda kv: (-kv[1], kv[0]))[:10]:
@@ -266,25 +290,34 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     current = collect_oversized(root, args.max_lines)
-    todos_now = count_todos(root)
+    metrics_now = {
+        "todo_count": count_todos(root),
+        "unwrap_count": count_unwraps(root),
+        "duplicate_deps_count": count_duplicate_deps(root),
+    }
 
     if args.update_baseline:
-        write_baseline(args.baseline, current, todos_now)
+        write_baseline(args.baseline, current, metrics_now)
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(metrics_now.items()))
         print(
-            f"Baseline updated: {len(current)} oversized file(s) and "
-            f"{todos_now} TODO(s) recorded in {args.baseline}"
+            f"Baseline updated: {len(current)} oversized file(s), {summary} "
+            f"recorded in {args.baseline}"
         )
         return 0
 
     baseline = load_baseline(args.baseline)
     violations = evaluate(current, baseline)
-    todo_baseline = load_todo_baseline(args.baseline)
-    todo_regression = todo_baseline is not None and todos_now > todo_baseline
+    metric_baselines = load_metric_baselines(args.baseline)
+    metric_regressions = {
+        k: (metric_baselines[k], v)
+        for k, v in metrics_now.items()
+        if k in metric_baselines and v > metric_baselines[k]
+    }
 
     stale = sorted(set(baseline) - set(current))
     improved = sorted(p for p in set(baseline) & set(current) if current[p] < baseline[p])
 
-    failed = bool(violations) or todo_regression
+    failed = bool(violations) or bool(metric_regressions)
     if violations:
         print(
             f"FAIL: {len(violations)} new-or-worse oversized file(s) "
@@ -292,19 +325,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         for v in violations:
             print(f"  {v.path}: {v.reason}")
-    if todo_regression:
-        print(
-            f"FAIL: TODO/FIXME/HACK count regressed ({todo_baseline} -> "
-            f"{todos_now}); resolve or split existing TODOs instead of adding "
-            "new ones, then ratchet the baseline down via --update-baseline"
-        )
+    for key, (was, now) in sorted(metric_regressions.items()):
+        print(f"FAIL: {key} regressed ({was} -> {now}); improve before adding more")
     if failed:
         return 1
 
+    metric_summary = ", ".join(
+        f"{k}={metrics_now[k]}/{metric_baselines.get(k, '?')}"
+        for k in sorted(metrics_now)
+    )
     print(
         f"OK: gate passed. {len(current)} known oversized file(s) within "
-        f"baseline (limit {args.max_lines} lines); {todos_now} TODO(s) "
-        f"(baseline {todo_baseline})."
+        f"baseline (limit {args.max_lines} lines); metrics current/baseline: "
+        f"{metric_summary}."
     )
     if stale:
         print(f"  {len(stale)} baseline file(s) now fixed — consider `--update-baseline`:")
@@ -314,11 +347,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    ... and {len(stale) - 10} more")
     if improved:
         print(f"  {len(improved)} baseline file(s) shrank — consider `--update-baseline`.")
-    if todo_baseline is not None and todos_now < todo_baseline:
-        print(
-            f"  TODO count improved ({todo_baseline} -> {todos_now}) — "
-            "ratchet it down with `--update-baseline`."
-        )
+    for key, was in sorted(metric_baselines.items()):
+        if metrics_now[key] < was:
+            print(
+                f"  {key} improved ({was} -> {metrics_now[key]}) — ratchet it "
+                "down with `--update-baseline`."
+            )
     return 0
 
 

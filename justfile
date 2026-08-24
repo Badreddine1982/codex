@@ -108,6 +108,10 @@ repo-health-metrics:
 todos:
     {{ python }} {{ justfile_directory() }}/scripts/check_repo_health.py --todos
 
+# Regenerate CHANGELOG.md from git history (conventional + GitHub subjects).
+changelog *args:
+    {{ python }} {{ justfile_directory() }}/scripts/generate_changelog.py {{ args }}
+
 # Run explicit workspace benchmark targets.
 bench *args:
     cargo bench --workspace --bench '*' {args}
