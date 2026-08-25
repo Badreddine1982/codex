@@ -6870,8 +6870,7 @@ async fn request_permissions_response_materializes_session_cwd_grants_before_rec
 
     let expected_permissions = RequestPermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![request_cwd]),
+            /*read*/ None,Some(vec![(request_cwd).into()]),
         )),
         ..Default::default()
     };

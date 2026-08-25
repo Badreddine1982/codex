@@ -21,6 +21,7 @@ use codex_protocol::request_permissions::RequestPermissionProfile as CoreRequest
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::LegacyAppPathString;
 use codex_utils_path_uri::PathConvention;
+use codex_utils_path_uri::PathUri;
 use serde::Deserialize;
 use serde::Serialize;
 use std::io;
@@ -66,36 +67,38 @@ impl From<CoreNetworkApprovalContext> for NetworkApprovalContext {
 // collapse into a simple `From`/`Into` pair.
 // ---------------------------------------------------------------------------
 
-/// Convert a v2 legacy path string to a core native absolute path, using the
-/// local native path convention. Returns an `io::Error` for foreign or
+/// Convert a v2 legacy path string to a core [`PathUri`], enforcing the local
+/// native path convention. Returns an `io::Error` for foreign or
 /// non-representable paths (fail-closed at the API boundary).
-fn legacy_path_to_abs(path: LegacyAppPathString) -> io::Result<AbsolutePathBuf> {
+fn legacy_path_to_uri(path: LegacyAppPathString) -> io::Result<PathUri> {
     path.to_path_uri(PathConvention::native())
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?
-        .to_abs_path()
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
 }
 
-/// Convert a core native absolute path to a v2 legacy path string.
-fn abs_to_legacy_path(path: &AbsolutePathBuf) -> LegacyAppPathString {
-    LegacyAppPathString::from_abs_path(path)
+/// Convert a core [`PathUri`] to a v2 legacy path string under the local
+/// native convention. Foreign URIs return an `io::Error` (fail-closed)
+/// because the v2 wire only carries native paths.
+fn uri_to_legacy_path(path: &PathUri) -> io::Result<LegacyAppPathString> {
+    LegacyAppPathString::from_path_uri(path, PathConvention::native())
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
 }
 
-fn core_path_to_v2(path: CoreFileSystemPath) -> FileSystemPath {
-    match path {
+fn core_path_to_v2(path: CoreFileSystemPath) -> io::Result<FileSystemPath> {
+    Ok(match path {
         CoreFileSystemPath::Path { path } => FileSystemPath::Path {
-            path: abs_to_legacy_path(&path),
+            path: uri_to_legacy_path(&path)?,
         },
         CoreFileSystemPath::GlobPattern { pattern } => FileSystemPath::GlobPattern { pattern },
         CoreFileSystemPath::Special { value } => FileSystemPath::Special {
             value: value.into(),
         },
-    }
+    })
 }
 
 fn v2_path_to_core(path: FileSystemPath) -> io::Result<CoreFileSystemPath> {
     Ok(match path {
         FileSystemPath::Path { path } => CoreFileSystemPath::Path {
-            path: legacy_path_to_abs(path)?,
+            path: legacy_path_to_uri(path)?,
         },
         FileSystemPath::GlobPattern { pattern } => CoreFileSystemPath::GlobPattern { pattern },
         FileSystemPath::Special { value } => CoreFileSystemPath::Special {
@@ -104,11 +107,11 @@ fn v2_path_to_core(path: FileSystemPath) -> io::Result<CoreFileSystemPath> {
     })
 }
 
-fn core_entry_to_v2(entry: CoreFileSystemSandboxEntry) -> FileSystemSandboxEntry {
-    FileSystemSandboxEntry {
-        path: core_path_to_v2(entry.path),
+fn core_entry_to_v2(entry: CoreFileSystemSandboxEntry) -> io::Result<FileSystemSandboxEntry> {
+    Ok(FileSystemSandboxEntry {
+        path: core_path_to_v2(entry.path)?,
         access: entry.access.into(),
-    }
+    })
 }
 
 fn v2_entry_to_core(entry: FileSystemSandboxEntry) -> io::Result<CoreFileSystemSandboxEntry> {
@@ -148,7 +151,9 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
             if let Some(paths) = read.as_ref() {
                 entries.extend(paths.iter().map(|path| FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: abs_to_legacy_path(path),
+                        path: uri_to_legacy_path(path).expect(
+                            "core permission path should be representable on the local host",
+                        ),
                     },
                     access: FileSystemAccessMode::Read,
                 }));
@@ -156,14 +161,34 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
             if let Some(paths) = write.as_ref() {
                 entries.extend(paths.iter().map(|path| FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: abs_to_legacy_path(path),
+                        path: uri_to_legacy_path(path).expect(
+                            "core permission path should be representable on the local host",
+                        ),
                     },
                     access: FileSystemAccessMode::Write,
                 }));
             }
             Self {
-                read: read.map(|paths| paths.iter().map(abs_to_legacy_path).collect()),
-                write: write.map(|paths| paths.iter().map(abs_to_legacy_path).collect()),
+                read: read.map(|paths| {
+                    paths
+                        .iter()
+                        .map(|p| {
+                            uri_to_legacy_path(p).expect(
+                                "core permission path should be representable on the local host",
+                            )
+                        })
+                        .collect()
+                }),
+                write: write.map(|paths| {
+                    paths
+                        .iter()
+                        .map(|p| {
+                            uri_to_legacy_path(p).expect(
+                                "core permission path should be representable on the local host",
+                            )
+                        })
+                        .collect()
+                }),
                 glob_scan_max_depth: None,
                 entries: Some(entries),
             }
@@ -172,7 +197,17 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
                 read: None,
                 write: None,
                 glob_scan_max_depth: value.glob_scan_max_depth,
-                entries: Some(value.entries.into_iter().map(core_entry_to_v2).collect()),
+                entries: Some(
+                    value
+                        .entries
+                        .into_iter()
+                        .map(|e| {
+                            core_entry_to_v2(e).expect(
+                                "core permission path should be representable on the local host",
+                            )
+                        })
+                        .collect(),
+                ),
             }
         }
     }
@@ -196,7 +231,7 @@ impl TryFrom<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
                 .map(|paths| {
                     paths
                         .into_iter()
-                        .map(legacy_path_to_abs)
+                        .map(legacy_path_to_uri)
                         .collect::<io::Result<Vec<_>>>()
                 })
                 .transpose()?;
@@ -205,7 +240,7 @@ impl TryFrom<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
                 .map(|paths| {
                     paths
                         .into_iter()
-                        .map(legacy_path_to_abs)
+                        .map(legacy_path_to_uri)
                         .collect::<io::Result<Vec<_>>>()
                 })
                 .transpose()?;
@@ -361,7 +396,9 @@ pub enum FileSystemPath {
 
 impl From<CoreFileSystemPath> for FileSystemPath {
     fn from(value: CoreFileSystemPath) -> Self {
-        core_path_to_v2(value)
+        core_path_to_v2(value).expect(
+            "core permission path should be representable on the local host",
+        )
     }
 }
 
@@ -383,7 +420,9 @@ pub struct FileSystemSandboxEntry {
 
 impl From<CoreFileSystemSandboxEntry> for FileSystemSandboxEntry {
     fn from(value: CoreFileSystemSandboxEntry) -> Self {
-        core_entry_to_v2(value)
+        core_entry_to_v2(value).expect(
+            "core permission path should be representable on the local host",
+        )
     }
 }
 

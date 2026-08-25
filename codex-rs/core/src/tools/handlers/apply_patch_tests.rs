@@ -309,6 +309,6 @@ fn write_permissions_for_paths_keep_dirs_outside_workspace_root() {
             .and_then(|profile| profile.file_system)
             .and_then(|fs| fs.legacy_read_write_roots())
             .and_then(|roots| roots.write),
-        Some(vec![expected_outside])
+        Some(vec![expected_outside.into()])
     );
 }

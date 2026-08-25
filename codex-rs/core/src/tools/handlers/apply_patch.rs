@@ -253,9 +253,9 @@ fn write_permissions_for_paths(
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
 
+    let write_paths: Vec<_> = write_paths.into_iter().map(Into::into).collect();
     let permissions = (!write_paths.is_empty()).then_some(AdditionalPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),
             Some(write_paths),
         )),
         ..Default::default()

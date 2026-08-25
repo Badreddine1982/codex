@@ -202,8 +202,7 @@ async fn file_system_sandbox_context_preserves_executor_workspace_permissions() 
         .abs();
     let additional_permissions = AdditionalPermissionProfile {
         network: None,
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![path.clone()]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![(path.clone()).into()]),
             Some(Vec::new()),
         )),
     };

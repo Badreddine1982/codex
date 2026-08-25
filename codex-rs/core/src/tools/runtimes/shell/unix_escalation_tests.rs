@@ -290,10 +290,7 @@ fn map_exec_result_preserves_stdout_and_stderr() {
 fn shell_request_escalation_execution_is_explicit() {
     let requested_permissions = AdditionalPermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![
-                AbsolutePathBuf::from_absolute_path("/tmp/output").unwrap(),
-            ]),
+            /*read*/ None,Some(vec![(AbsolutePathBuf::from_absolute_path("/tmp/output").unwrap()).into()]),
         )),
         ..Default::default()
     };
@@ -412,10 +409,7 @@ async fn preapproved_additional_permissions_escalate_intercepted_exec() -> anyho
     let (session, turn_context) = make_session_and_context().await;
     let requested_permissions = AdditionalPermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![
-                AbsolutePathBuf::from_absolute_path("/tmp/output").unwrap(),
-            ]),
+            /*read*/ None,Some(vec![(AbsolutePathBuf::from_absolute_path("/tmp/output").unwrap()).into()]),
         )),
         ..Default::default()
     };

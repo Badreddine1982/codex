@@ -186,8 +186,7 @@ impl PluginMetricsSidecar {
     pub fn additional_permissions(&self) -> AdditionalPermissionProfile {
         AdditionalPermissionProfile {
             file_system: Some(FileSystemPermissions::from_read_write_roots(
-                /*read*/ None,
-                /*write*/ Some(vec![self.absolute_output_dir.clone()]),
+                /*read*/ None,/*write*/ Some(vec![(self.absolute_output_dir.clone()).into()]),
             )),
             ..Default::default()
         }

@@ -106,9 +106,7 @@ fn normalize_additional_permissions_preserves_network() {
         network: Some(NetworkPermissions {
             enabled: Some(true),
         }),
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![path.clone()]),
-            Some(vec![path.clone()]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![(path.clone()).into()]),Some(vec![(path.clone()).into()]),
         )),
     })
     .expect("permissions");
@@ -121,9 +119,7 @@ fn normalize_additional_permissions_preserves_network() {
     );
     assert_eq!(
         permissions.file_system,
-        Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![path.clone()]),
-            Some(vec![path]),
+        Some(FileSystemPermissions::from_read_write_roots(Some(vec![(path.clone()).into()]),Some(vec![(path).into()]),
         ))
     );
 }
@@ -141,9 +137,7 @@ fn normalize_additional_permissions_preserves_symlinked_write_paths() {
     let link_write_dir =
         AbsolutePathBuf::from_absolute_path(link_root.join("write")).expect("link write dir");
     let permissions = normalize_additional_permissions(PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![link_write_dir]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(link_write_dir).into()]),
         )),
         ..Default::default()
     })
@@ -151,12 +145,8 @@ fn normalize_additional_permissions_preserves_symlinked_write_paths() {
 
     assert_eq!(
         permissions.file_system,
-        Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![
-                AbsolutePathBuf::from_absolute_path(link_root.join("write"))
-                    .expect("link write dir"),
-            ]),
+        Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::from_absolute_path(link_root.join("write"))
+                    .expect("link write dir")).into()]),
         ))
     );
 }
@@ -238,9 +228,7 @@ fn intersect_permission_profiles_preserves_explicit_empty_requested_reads() {
     )
     .expect("absolute temp dir");
     let requested = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![path]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(path).into()]),
         )),
         ..Default::default()
     };
@@ -260,8 +248,7 @@ fn intersect_permission_profiles_drops_ungranted_nonempty_path_requests() {
     )
     .expect("absolute temp dir");
     let requested = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![path]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![(path).into()]),
             /*write*/ None,
         )),
         ..Default::default()
@@ -281,9 +268,7 @@ fn intersect_permission_profiles_drops_explicit_empty_reads_without_grant() {
     )
     .expect("absolute temp dir");
     let requested = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![path]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(path).into()]),
         )),
         ..Default::default()
     };
@@ -301,8 +286,7 @@ fn intersect_permission_profiles_rejects_symbolic_slash_tmp_grants() {
     let slash_tmp = AbsolutePathBuf::from_absolute_path("/tmp").expect("absolute tmp path");
     let requested = PermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![slash_tmp]),
+            /*read*/ None,Some(vec![(slash_tmp).into()]),
         )),
         ..Default::default()
     };
@@ -352,8 +336,7 @@ fn intersect_permission_profiles_accepts_child_path_granted_for_requested_cwd() 
     };
     let granted = PermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![child]),
+            /*read*/ None,Some(vec![(child).into()]),
         )),
         ..Default::default()
     };
@@ -395,8 +378,7 @@ fn intersect_permission_profiles_materializes_cwd_grant_for_reuse() {
         intersected,
         PermissionProfile {
             file_system: Some(FileSystemPermissions::from_read_write_roots(
-                /*read*/ None,
-                Some(vec![request_cwd]),
+                /*read*/ None,Some(vec![(request_cwd).into()]),
             )),
             ..Default::default()
         }
@@ -405,8 +387,7 @@ fn intersect_permission_profiles_materializes_cwd_grant_for_reuse() {
         intersect_permission_profiles(
             PermissionProfile {
                 file_system: Some(FileSystemPermissions::from_read_write_roots(
-                    /*read*/ None,
-                    Some(vec![later_cwd.join("child")]),
+                    /*read*/ None,Some(vec![(later_cwd.join("child")).into()]),
                 )),
                 ..Default::default()
             },
@@ -447,8 +428,7 @@ fn intersect_permission_profiles_deduplicates_materialized_grants() {
         intersect_permission_profiles(permissions.clone(), permissions, cwd.as_path()),
         PermissionProfile {
             file_system: Some(FileSystemPermissions::from_read_write_roots(
-                /*read*/ None,
-                Some(vec![cwd]),
+                /*read*/ None,Some(vec![(cwd).into()]),
             )),
             ..Default::default()
         }
@@ -583,8 +563,7 @@ fn intersect_permission_profiles_rejects_concrete_grants_matched_by_requested_de
     };
     let granted = PermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![env_file]),
+            /*read*/ None,Some(vec![(env_file).into()]),
         )),
         ..Default::default()
     };
@@ -654,8 +633,7 @@ fn intersect_permission_profiles_materializes_relative_deny_globs_for_reuse() {
         intersect_permission_profiles(
             PermissionProfile {
                 file_system: Some(FileSystemPermissions::from_read_write_roots(
-                    /*read*/ None,
-                    Some(vec![later_cwd.join("token.env")]),
+                    /*read*/ None,Some(vec![(later_cwd.join("token.env")).into()]),
                 )),
                 ..Default::default()
             },
@@ -676,8 +654,7 @@ fn intersect_permission_profiles_drops_broader_cwd_grant_for_requested_child_pat
     let child = cwd.join("child");
     let requested = PermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![child]),
+            /*read*/ None,Some(vec![(child).into()]),
         )),
         ..Default::default()
     };
@@ -841,8 +818,7 @@ fn merge_file_system_policy_with_additional_permissions_preserves_unreadable_roo
                 missing_path_behavior: None,
             },
         ]),
-        &FileSystemPermissions::from_read_write_roots(
-            Some(vec![allowed_path.clone()]),
+        &FileSystemPermissions::from_read_write_roots(Some(vec![(allowed_path.clone()).into()]),
             Some(Vec::new()),
         ),
     );
@@ -957,9 +933,7 @@ fn effective_file_system_sandbox_policy_merges_additional_write_roots() {
         },
     ]);
     let additional_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![allowed_path.clone()]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(allowed_path.clone()).into()]),
         )),
         ..Default::default()
     };

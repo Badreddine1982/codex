@@ -1237,9 +1237,7 @@ mod tests {
                 network: Some(NetworkPermissions {
                     enabled: Some(true),
                 }),
-                file_system: Some(FileSystemPermissions::from_read_write_roots(
-                    Some(vec![absolute_path("/tmp/readme.txt")]),
-                    Some(vec![absolute_path("/tmp/out.txt")]),
+                file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                 )),
             },
         })
@@ -1822,9 +1820,7 @@ mod tests {
         let additional_permissions = AdditionalPermissionProfile {
             network: None,
             file_system: Some(
-                FileSystemPermissions::from_read_write_roots(
-                    Some(vec![absolute_path("/tmp/readme.txt")]),
-                    Some(vec![absolute_path("/tmp/out.txt")]),
+                FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                 )
                 .into(),
             ),
@@ -2036,9 +2032,7 @@ mod tests {
                     enabled: Some(true),
                 }),
                 file_system: Some(
-                    FileSystemPermissions::from_read_write_roots(
-                        Some(vec![absolute_path("/tmp/readme.txt")]),
-                        Some(vec![absolute_path("/tmp/out.txt")]),
+                    FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                     )
                     .into(),
                 ),
@@ -2093,9 +2087,7 @@ mod tests {
                     enabled: Some(true),
                 }),
                 file_system: Some(
-                    FileSystemPermissions::from_read_write_roots(
-                        Some(vec![absolute_path("/tmp/readme.txt")]),
-                        Some(vec![absolute_path("/tmp/out.txt")]),
+                    FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                     )
                     .into(),
                 ),

@@ -877,8 +877,7 @@ async fn file_system_sandboxed_write_allows_additional_write_root(
     let additional_permissions = AdditionalPermissionProfile {
         network: None,
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![absolute_path(writable_dir)]),
+            /*read*/ None,Some(vec![absolute_path(writable_dir).into()]),
         )),
     };
     let native_permissions: PermissionProfile = sandbox.permissions.clone().try_into()?;

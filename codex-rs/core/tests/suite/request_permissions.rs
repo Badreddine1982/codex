@@ -297,9 +297,7 @@ fn workspace_write_excluding_tmp() -> CorePermissionProfile {
 
 fn requested_directory_write_permissions(path: &Path) -> RequestPermissionProfile {
     RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(path)]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(path).into()]),
         )),
         ..RequestPermissionProfile::default()
     }
@@ -307,9 +305,7 @@ fn requested_directory_write_permissions(path: &Path) -> RequestPermissionProfil
 
 fn normalized_directory_write_permissions(path: &Path) -> Result<RequestPermissionProfile> {
     Ok(RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![AbsolutePathBuf::try_from(path.canonicalize()?)?]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(path.canonicalize()?)?).into()]),
         )),
         ..RequestPermissionProfile::default()
     })
@@ -350,9 +346,7 @@ async fn with_additional_permissions_requires_approval_under_on_request() -> Res
     let call_id = "request_permissions_skip_approval";
     let command = "touch requested-dir/requested-but-unused.txt";
     let requested_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(&requested_dir_canonical)]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(&requested_dir_canonical).into()]),
         )),
         ..Default::default()
     };
@@ -806,8 +800,7 @@ async fn relative_additional_permissions_resolve_against_tool_workdir(
     });
     let expected_permissions = PermissionProfile {
         file_system: Some(FileSystemPermissions::from_read_write_roots(
-            /*read*/ None,
-            Some(vec![absolute_path(&nested_dir_canonical)]),
+            /*read*/ None,Some(vec![absolute_path(&nested_dir_canonical).into()]),
         )),
         ..Default::default()
     };
@@ -922,9 +915,7 @@ async fn read_only_with_additional_permissions_does_not_widen_to_unrequested_cwd
         "cwd-widened", unrequested_write, unrequested_write
     );
     let requested_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(&requested_write)]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(&requested_write).into()]),
         )),
         ..Default::default()
     };
@@ -1026,9 +1017,7 @@ async fn read_only_with_additional_permissions_does_not_widen_to_unrequested_tmp
         "tmp-widened", tmp_write, tmp_write
     );
     let requested_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(&requested_write)]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(&requested_write).into()]),
         )),
         ..Default::default()
     };
@@ -1128,18 +1117,14 @@ async fn workspace_write_with_additional_permissions_can_write_outside_cwd() -> 
         "outside-cwd-ok", outside_write, outside_write
     );
     let requested_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(outside_dir.path())]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(outside_dir.path()).into()]),
         )),
         ..RequestPermissionProfile::default()
     };
     let normalized_requested_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![AbsolutePathBuf::try_from(
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(
                 outside_dir.path().canonicalize()?,
-            )?]),
+            )?).into()]),
         )),
         ..RequestPermissionProfile::default()
     };
@@ -1233,18 +1218,14 @@ async fn with_additional_permissions_denied_approval_blocks_execution() -> Resul
         "should-not-write", outside_write, outside_write
     );
     let requested_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(outside_dir.path())]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(outside_dir.path()).into()]),
         )),
         ..Default::default()
     };
     let normalized_requested_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![AbsolutePathBuf::try_from(
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(
                 outside_dir.path().canonicalize()?,
-            )?]),
+            )?).into()]),
         )),
         ..Default::default()
     };
@@ -1338,18 +1319,14 @@ async fn request_permissions_grants_apply_to_later_exec_command_calls() -> Resul
         "sticky-grant-ok", outside_write, outside_write
     );
     let requested_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(outside_dir.path())]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(outside_dir.path()).into()]),
         )),
         ..Default::default()
     };
     let normalized_requested_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![AbsolutePathBuf::try_from(
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(
                 outside_dir.path().canonicalize()?,
-            )?]),
+            )?).into()]),
         )),
         ..Default::default()
     };
@@ -1818,34 +1795,19 @@ async fn partial_request_permissions_grants_do_not_preapprove_new_permissions() 
     );
 
     let requested_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![
-                absolute_path(first_dir.path()),
-                absolute_path(second_dir.path()),
-            ]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(first_dir.path()).into(), absolute_path(second_dir.path()).into()]),
         )),
         ..RequestPermissionProfile::default()
     };
     let normalized_requested_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![
-                AbsolutePathBuf::try_from(first_dir.path().canonicalize()?)?,
-                AbsolutePathBuf::try_from(second_dir.path().canonicalize()?)?,
-            ]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(first_dir.path().canonicalize()?)?).into(), (AbsolutePathBuf::try_from(second_dir.path().canonicalize()?)?).into()]),
         )),
         ..RequestPermissionProfile::default()
     };
     let granted_permissions = normalized_directory_write_permissions(first_dir.path())?;
     let second_dir_permissions = requested_directory_write_permissions(second_dir.path());
     let merged_permissions = PermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![
-                AbsolutePathBuf::try_from(first_dir.path().canonicalize()?)?,
-                AbsolutePathBuf::try_from(second_dir.path().canonicalize()?)?,
-            ]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(first_dir.path().canonicalize()?)?).into(), (AbsolutePathBuf::try_from(second_dir.path().canonicalize()?)?).into()]),
         )),
         ..Default::default()
     };
@@ -1920,7 +1882,7 @@ async fn partial_request_permissions_grants_do_not_preapprove_new_permissions() 
     assert!(approval_reads.as_ref().is_none_or(Vec::is_empty));
 
     let mut approval_writes = approval_writes.unwrap_or_default();
-    approval_writes.sort_by_key(|path| path.display().to_string());
+    approval_writes.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
     let codex_protocol::models::LegacyReadWriteRoots {
         write: expected_writes,
@@ -1931,7 +1893,7 @@ async fn partial_request_permissions_grants_do_not_preapprove_new_permissions() 
         .legacy_read_write_roots()
         .expect("expected legacy-compatible permissions");
     let mut expected_writes = expected_writes.unwrap_or_default();
-    expected_writes.sort_by_key(|path| path.display().to_string());
+    expected_writes.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
     assert_eq!(approval_writes, expected_writes);
     test.codex

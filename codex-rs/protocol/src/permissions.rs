@@ -469,7 +469,7 @@ impl FileSystemPath {
 /// pre-migration wire format. Fails when the URI cannot be rendered under the
 /// current host's path convention (foreign-convention URIs are not
 /// serializable through the legacy wire and indicate a caller bug).
-fn serialize_path_uri_as_native_string<S>(
+pub(crate) fn serialize_path_uri_as_native_string<S>(
     path: &PathUri,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -486,7 +486,7 @@ where
 /// round-tripping through [`serialize_path_uri_as_native_string`] is
 /// identity. Incoming foreign-convention strings are rejected to keep
 /// deserialization consistent with ser.
-fn deserialize_path_uri_from_native_string<'de, D>(
+pub(crate) fn deserialize_path_uri_from_native_string<'de, D>(
     deserializer: D,
 ) -> Result<PathUri, D::Error>
 where
@@ -496,6 +496,81 @@ where
     native
         .to_path_uri(PathConvention::native())
         .map_err(serde::de::Error::custom)
+}
+
+/// Serializes a `Vec<PathUri>` as a JSON array of native path strings
+/// (companion to [`serialize_path_uri_as_native_string`]).
+pub(crate) fn serialize_path_uri_vec_as_native_strings<S>(
+    paths: &[PathUri],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+    let mut seq = serializer.serialize_seq(Some(paths.len()))?;
+    for path in paths {
+        let native = LegacyAppPathString::from_path_uri(path, PathConvention::native())
+            .map_err(serde::ser::Error::custom)?;
+        seq.serialize_element(&native)?;
+    }
+    seq.end()
+}
+
+/// Deserializes a `Vec<PathUri>` from an array of legacy native OS path
+/// strings (companion to [`deserialize_path_uri_from_native_string`]).
+pub(crate) fn deserialize_path_uri_vec_from_native_strings<'de, D>(
+    deserializer: D,
+) -> Result<Vec<PathUri>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let natives: Vec<LegacyAppPathString> = Vec::deserialize(deserializer)?;
+    natives
+        .into_iter()
+        .map(|native| {
+            native
+                .to_path_uri(PathConvention::native())
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
+}
+
+/// Serializes an `Option<Vec<PathUri>>` as an optional array of native path
+/// strings (used by `LegacyReadWriteRoots`).
+pub(crate) fn serialize_opt_path_uri_vec_as_native_strings<S>(
+    paths: &Option<Vec<PathUri>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match paths {
+        Some(paths) => serialize_path_uri_vec_as_native_strings(paths, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// Deserializes an `Option<Vec<PathUri>>` from an optional array of legacy
+/// native path strings (used by `LegacyReadWriteRoots`).
+pub(crate) fn deserialize_opt_path_uri_vec_from_native_strings<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<PathUri>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Vec<LegacyAppPathString>>::deserialize(deserializer)?
+        .map(|natives| {
+            natives
+                .into_iter()
+                .map(|native| {
+                    native
+                        .to_path_uri(PathConvention::native())
+                        .map_err(serde::de::Error::custom)
+                })
+                .collect()
+        })
+        .transpose()
 }
 
 const PROJECT_ROOTS_GLOB_PATTERN_PREFIX: &str = "codex-project-roots://";

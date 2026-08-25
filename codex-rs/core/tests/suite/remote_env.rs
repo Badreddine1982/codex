@@ -2794,9 +2794,7 @@ async fn remote_request_permissions_grant_unblocks_later_remote_exec() -> Result
         .await?;
 
     let expected_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![remote_write_root.clone()]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(remote_write_root.clone()).into()]),
         )),
         ..RequestPermissionProfile::default()
     };
