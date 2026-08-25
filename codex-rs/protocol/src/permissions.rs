@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::canonicalize_preserving_symlinks;
+use codex_utils_path_uri::ForeignPathError;
+use codex_utils_path_uri::PathUri;
 use globset::GlobBuilder;
 use globset::GlobMatcher;
 use schemars::JsonSchema;
@@ -739,6 +741,68 @@ impl FileSystemSandboxPolicy {
             return true;
         }
         !self.is_metadata_write_denied(path, cwd)
+    }
+
+    /// [`Self::can_write_path_with_cwd`] for [`PathUri`] inputs; projects both
+    /// the candidate path and the cwd to localhost native paths, failing closed
+    /// (denying writes) for foreign-host/foreign-convention URIs.
+    ///
+    /// This is the safe entry point for permission/safety checks: callers no
+    /// longer need to hand-roll `to_abs_path()` projections and decide what to
+    /// do when they fail; foreign paths are treated as not writable.
+    pub fn can_write_path_uri_with_cwd(&self, path: &PathUri, cwd: &PathUri) -> bool {
+        let (Ok(native_path), Ok(native_cwd)) =
+            (path.project_to_localhost(), cwd.project_to_localhost())
+        else {
+            return false;
+        };
+        self.can_write_path_with_cwd(native_path.as_path(), native_cwd.as_path())
+    }
+
+    /// [`Self::can_read_path_with_cwd`] for [`PathUri`] inputs; fails closed
+    /// (denying reads) for foreign-host/foreign-convention URIs.
+    pub fn can_read_path_uri_with_cwd(&self, path: &PathUri, cwd: &PathUri) -> bool {
+        let (Ok(native_path), Ok(native_cwd)) =
+            (path.project_to_localhost(), cwd.project_to_localhost())
+        else {
+            return false;
+        };
+        self.can_read_path_with_cwd(native_path.as_path(), native_cwd.as_path())
+    }
+
+    /// [`Self::resolve_access_with_cwd`] for [`PathUri`] inputs; returns
+    /// [`FileSystemAccessMode::Deny`] for foreign URIs (fail closed).
+    pub fn resolve_access_for_path_uri_with_cwd(
+        &self,
+        path: &PathUri,
+        cwd: &PathUri,
+    ) -> FileSystemAccessMode {
+        let (Ok(native_path), Ok(native_cwd)) =
+            (path.project_to_localhost(), cwd.project_to_localhost())
+        else {
+            return FileSystemAccessMode::Deny;
+        };
+        self.resolve_access_with_cwd(native_path.as_path(), native_cwd.as_path())
+    }
+
+    /// Returns the writable roots for a [`PathUri`] cwd, or an empty `Vec` when
+    /// the cwd is foreign.
+    pub fn get_writable_roots_for_path_uri(&self, cwd: &PathUri) -> Vec<WritableRoot> {
+        if self.has_full_disk_write_access() {
+            return Vec::new();
+        }
+        let Ok(native_cwd) = cwd.project_to_localhost() else {
+            return Vec::new();
+        };
+        self.get_writable_roots_with_cwd(native_cwd.as_path())
+    }
+
+    /// Project a [`PathUri`] to a native absolute path, returning a descriptive
+    /// [`ForeignPathError`] when the URI is not local. Callers that already
+    /// intend to deny on foreign paths should prefer
+    /// [`Self::can_write_path_uri_with_cwd`] et al. which fail closed directly.
+    pub fn project_path_uri(path: &PathUri) -> Result<AbsolutePathBuf, ForeignPathError> {
+        path.project_to_localhost()
     }
 
     fn is_metadata_write_denied(&self, path: &Path, cwd: &Path) -> bool {

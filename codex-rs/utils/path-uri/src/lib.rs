@@ -207,8 +207,10 @@ impl PathUri {
     /// an absolute Windows UTF-16LE prefix. `None` is returned when their
     /// payload does not identify either convention.
     ///
-    /// TODO(anp): Once `PathUri` carries an environment identifier, prefer the
+    /// TODO(anp, env-id-epic): Once `PathUri` carries an environment identifier, prefer the
     /// environment's declared convention over this spelling-based heuristic.
+    /// Out of scope for the PathUri core-migration epic; requires PathUri to
+    /// store an environment id, which is tracked separately.
     pub fn infer_path_convention(&self) -> Option<PathConvention> {
         if let Some(path_bytes) = self.opaque_fallback_bytes() {
             return infer_opaque_path_convention(&path_bytes);
@@ -544,6 +546,31 @@ impl PathUri {
                 },
             )
         })
+    }
+
+    /// Project this URI onto the local host's native path representation,
+    /// returning a typed [`ForeignPathError`] when the URI cannot be safely
+    /// converted (foreign host, foreign path convention, or non-representable
+    /// bytes).
+    ///
+    /// This is the canonical boundary at which sandbox/policy checks should
+    /// project a [`PathUri`] to an [`AbsolutePathBuf`]. Callers must follow the
+    /// fail-closed guidance documented on [`ForeignPathError`].
+    pub fn project_to_localhost(&self) -> Result<AbsolutePathBuf, ForeignPathError> {
+        if self.0.host_str().is_some() {
+            return Err(ForeignPathError::ForeignHost(self.to_string()));
+        }
+        let convention = self
+            .infer_path_convention()
+            .ok_or_else(|| ForeignPathError::NonRepresentable(self.to_string()))?;
+        if convention != PathConvention::native() {
+            return Err(ForeignPathError::ForeignConvention {
+                path: self.to_string(),
+                convention,
+            });
+        }
+        self.to_abs_path()
+            .map_err(|_| ForeignPathError::NonRepresentable(self.to_string()))
     }
 
     /// Returns a clone of the canonical URL.
@@ -882,6 +909,27 @@ pub enum PathUriParseError {
     FragmentNotAllowed,
     #[error("path `{0}` must be relative when joining a path URI")]
     JoinPathMustBeRelative(String),
+}
+
+/// Error returned when a [`PathUri`] cannot be projected onto the local host's
+/// native path representation.
+///
+/// This is the explicit boundary between path-URI values (which may describe
+/// foreign hosts, foreign path conventions, or opaque fallback bytes) and the
+/// native [`AbsolutePathBuf`] representation used by the filesystem sandbox
+/// engine and platform-level syscalls.
+///
+/// Permission/sandbox checks must treat a `ForeignPath` failure as
+/// **fail-closed** (deny / ask the user) rather than silently falling back to
+/// the session's host cwd.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+pub enum ForeignPathError {
+    #[error("path URI `{0}` has a host/authority and is not a local path")]
+    ForeignHost(String),
+    #[error("path URI `{0}` uses a {convention} convention that does not match the local host", convention = .convention)]
+    ForeignConvention { path: String, convention: PathConvention },
+    #[error("path URI `{0}` cannot be converted to a local native path")]
+    NonRepresentable(String),
 }
 
 /// Path syntax used to render a [`PathUri`] as an operating-system path.
