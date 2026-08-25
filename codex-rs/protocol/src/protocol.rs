@@ -140,9 +140,9 @@ pub fn strip_user_message_prefix(text: &str) -> &str {
     }
 }
 
-// TODO(anp, env-id-epic): Replace `TurnEnvironmentSelection` with `PathUri` once path URIs carry
-// environment identifiers. Out of scope for the core PathUri migration epic (requires
-// PathUri to store an environment id).
+// TODO(anp): [env-id-epic] Replace `TurnEnvironmentSelection` with `PathUri` once path URIs
+// carry environment identifiers. Out of scope for the core PathUri migration epic
+// (requires PathUri to store an environment id).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnEnvironmentSelection {
     pub environment_id: String,

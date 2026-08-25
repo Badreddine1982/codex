@@ -563,7 +563,7 @@ pub enum SandboxPolicy {
     },
     #[serde(rename_all = "camelCase")]
     #[ts(rename_all = "camelCase")]
-    // TODO(anp, v3-pathuri): Move `writable_roots` from `AbsolutePathBuf` to
+    // TODO(anp): [v3-pathuri] Move `writable_roots` from `AbsolutePathBuf` to
     // `FileSystemPath::Path` (LegacyAppPathString) once v3 settles the wire
     // representation for foreign paths; kept as AbsolutePathBuf in this Epic
     // to avoid a breaking wire-format change.
@@ -792,7 +792,7 @@ pub struct PermissionsRequestApprovalParams {
     /// Unix timestamp (in milliseconds) when this approval request started.
     #[ts(type = "number")]
     pub started_at_ms: i64,
-    // TODO(anp, v3-pathuri): Switch `cwd` to `FileSystemPath::Path` (a
+    // TODO(anp): [v3-pathuri] Switch `cwd` to `FileSystemPath::Path` (a
     // LegacyAppPathString) once v3 settles the wire representation; kept as
     // AbsolutePathBuf in this Epic to avoid a breaking client change.
     pub cwd: AbsolutePathBuf,

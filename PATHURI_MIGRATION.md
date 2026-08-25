@@ -239,7 +239,9 @@ protection، dot-codex protection، glob resolution، canonicalize…) يظل ي
    - `protocol/src/protocol.rs:143` (TurnEnvironmentSelection)
 
 **ما تبقّى للمرحلة 0a لكي تُغلَق نهائياً:**
-- تغيير نوع الحقل `FileSystemPath::Path.path` في `protocol/src/permissions.rs` إلى `PathUri` مع `serialize_with`/`deserialize_with` يحافظان على السلك (يحتاج إضافة وحدة serde helper واختبارات insta).
+- تبديل نوع الحقل `FileSystemPath::Path.path` في `protocol/src/permissions.rs` إلى `PathUri` مع `serialize_with`/`deserialize_with` يحافظان على السلك native (يحتاج إضافة وحدة serde helper واختبارات insta، وجولة `cargo check`). تمهيداً لذلك:
+  - أُضيف `From<PathUri> for FileSystemPath` (مع panic على الأجنبي) و`FileSystemPath::try_from_path_uri(uri) -> Option<Self>` و`FileSystemPath::as_path_uri() -> Option<PathUri>` حتى تتمكن المواقع الجديدة من البناء والاستعلام بـ PathUri بدون تعديل التخزين الداخلي.
+  - أُضيف `forbidden_agent_metadata_write_uri` كـ PathUri wrapper على دالة فحص البيانات الوصفية.
 - تحويل `FileSystemPermissions::entries` في `protocol/src/models.rs` إلى تخزين `PathUri` داخلياً مع نفس serde shim.
 - إزالة الـ try_from/to_abs_path المتبقي في `v2/permissions.rs` ليصبح `From` بسيطاً.
 - بعد ذلك يمكن إنهاء المرحلة 0b (sandboxing manager).

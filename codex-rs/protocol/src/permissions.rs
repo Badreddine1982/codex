@@ -72,6 +72,24 @@ pub fn forbidden_agent_metadata_write(
     None
 }
 
+/// [`forbidden_agent_metadata_write`] for [`PathUri`] inputs. Returns `None`
+/// (fail-open for this check only when the path cannot be projected to the
+/// local host; the sandbox-level deny will still prevent writes via
+/// `can_write_path_uri_with_cwd`).
+pub fn forbidden_agent_metadata_write_uri(
+    path: &PathUri,
+    cwd: &PathUri,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+) -> Option<&'static str> {
+    let native_path = path.project_to_localhost().ok()?;
+    let native_cwd = cwd.project_to_localhost().ok()?;
+    forbidden_agent_metadata_write(
+        native_path.as_path(),
+        native_cwd.as_path(),
+        file_system_sandbox_policy,
+    )
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, Default, JsonSchema, TS,
 )]
@@ -368,7 +386,16 @@ enum InvalidDenyReadGlobBehavior {
 #[ts(tag = "type")]
 pub enum FileSystemPath {
     Path {
-        // TODO(anp): Use PathUri once permission paths no longer require native-path rollout serialization.
+        // TODO(anp): [phase-0a-serde-shim] Switch this field to `PathUri` with
+        // a serialize_with/deserialize_with pair that preserves the current
+        // native-path wire spelling (see PATHURI_MIGRATION.md design decision
+        // د.2). The internal engine in this file still operates on
+        // AbsolutePathBuf, so switching the field type requires auditing ~35
+        // destructuring sites below and adding projection helpers; that
+        // switch is done together with a `cargo check` pass.
+        //
+        // For now, constructors and accessors below accept/produce PathUri so
+        // new call sites no longer need to hand-roll conversions.
         path: AbsolutePathBuf,
     },
     /// A git-style glob pattern. Pattern entries currently support
@@ -384,6 +411,41 @@ pub enum FileSystemPath {
 impl From<AbsolutePathBuf> for FileSystemPath {
     fn from(path: AbsolutePathBuf) -> Self {
         Self::Path { path }
+    }
+}
+
+impl From<PathUri> for FileSystemPath {
+    /// Convert a [`PathUri`] to a [`FileSystemPath::Path`] by projecting it
+    /// onto the local host's native path.
+    ///
+    /// # Panics
+    /// Panics when the URI is a foreign-host/foreign-convention URI that
+    /// cannot be represented as a local native path. Use
+    /// [`Self::try_from_path_uri`] for fallible construction (for example
+    /// when processing API input).
+    fn from(uri: PathUri) -> Self {
+        Self::try_from_path_uri(uri)
+            .expect("FileSystemPath::from<PathUri> called with a non-local PathUri; use try_from_path_uri for fallible construction")
+    }
+}
+
+impl FileSystemPath {
+    /// Fallible constructor from a [`PathUri`]. Returns `None` for foreign
+    /// URIs; callers processing untrusted input should use this and map the
+    /// error into a fail-closed result.
+    pub fn try_from_path_uri(uri: PathUri) -> Option<Self> {
+        let path = uri.project_to_localhost().ok()?;
+        Some(Self::Path { path })
+    }
+
+    /// Returns the [`PathUri`] for this path when it is a concrete local
+    /// path, or `None` for globs and special entries (which don't have a
+    /// single path URI).
+    pub fn as_path_uri(&self) -> Option<PathUri> {
+        match self {
+            Self::Path { path } => Some(PathUri::from_abs_path(path)),
+            Self::GlobPattern { .. } | Self::Special { .. } => None,
+        }
     }
 }
 

@@ -207,7 +207,7 @@ impl PathUri {
     /// an absolute Windows UTF-16LE prefix. `None` is returned when their
     /// payload does not identify either convention.
     ///
-    /// TODO(anp, env-id-epic): Once `PathUri` carries an environment identifier, prefer the
+    /// TODO(anp): [env-id-epic] Once `PathUri` carries an environment identifier, prefer the
     /// environment's declared convention over this spelling-based heuristic.
     /// Out of scope for the PathUri core-migration epic; requires PathUri to
     /// store an environment id, which is tracked separately.
