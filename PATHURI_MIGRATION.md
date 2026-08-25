@@ -238,12 +238,23 @@ protection، dot-codex protection، glob resolution، canonicalize…) يظل ي
    - `utils/path-uri/src/lib.rs:210` (environment identifier heuristic)
    - `protocol/src/protocol.rs:143` (TurnEnvironmentSelection)
 
-**ما تبقّى للمرحلة 0a لكي تُغلَق نهائياً:**
-- تبديل نوع الحقل `FileSystemPath::Path.path` في `protocol/src/permissions.rs` إلى `PathUri` مع `serialize_with`/`deserialize_with` يحافظان على السلك native (يحتاج إضافة وحدة serde helper واختبارات insta، وجولة `cargo check`). تمهيداً لذلك:
-  - أُضيف `From<PathUri> for FileSystemPath` (مع panic على الأجنبي) و`FileSystemPath::try_from_path_uri(uri) -> Option<Self>` و`FileSystemPath::as_path_uri() -> Option<PathUri>` حتى تتمكن المواقع الجديدة من البناء والاستعلام بـ PathUri بدون تعديل التخزين الداخلي.
-  - أُضيف `forbidden_agent_metadata_write_uri` كـ PathUri wrapper على دالة فحص البيانات الوصفية.
-- تحويل `FileSystemPermissions::entries` في `protocol/src/models.rs` إلى تخزين `PathUri` داخلياً مع نفس serde shim.
-- إزالة الـ try_from/to_abs_path المتبقي في `v2/permissions.rs` ليصبح `From` بسيطاً.
-- بعد ذلك يمكن إنهاء المرحلة 0b (sandboxing manager).
+**تحديث 2026-08-25 — إكمال تبديل الحقل و serde shim:**
 
-**ملاحظة التنفيذ:** هذه الجلسة لم تستطع تشغيل `cargo build` لأن الشبكة في sandbox لا تسمح بتنزيل toolchain Rust (OpenSSL SSL_ERROR_SYSCALL)، لذا فالتنفيذ مراجَع يدوياً ويحتاج جولة `just build`/`just test` فور توفر الأداة.
+- ✅ **تبديل نوع الحقل**: `FileSystemPath::Path.path` أصبح الآن `PathUri` مع `#[serde(serialize_with = "serialize_path_uri_as_native_string", deserialize_with = "deserialize_path_uri_from_native_string")]` و`#[schemars(with = "String")]` و`#[ts(type = "string")]`. الـ shim يستخدم `LegacyAppPathString::from_path_uri(path, PathConvention::native())` للكتابة و`native.to_path_uri(PathConvention::native())` للقراءة، ما يُبقي تمثيل السلك سلسلة مسار native متطابقة حرفياً مع ما قبل الترحيل.
+- ✅ **البوابة الداخلية**: `FileSystemPath::as_local_abs_path()` هي نقطة الإسقاط الوحيدة؛ محرك السياسات الداخلي ما زال يعمل على `AbsolutePathBuf`، وجميع مواقع التدمير (destructuring) التي تمرّر إلى المحرك تستدعي `project_to_localhost().ok()` وتُطبّق fail-closed.
+- ✅ **التحويلات عبر الـ crates**:
+  - `file-system/src/lib.rs`: `From<FileSystemPath> for ExecFileSystemPath` أصبح نقلًا مباشرًا لـ PathUri، و`TryFrom<ExecFileSystemPath> for FileSystemPath` يستخدم `FileSystemPath::try_from_path_uri` مع io::Error للأجنبي.
+  - `exec-server/src/fs_sandbox.rs`: `normalize_top_level_alias` صارت تأخذ/تُعيد `PathUri`.
+  - `sandboxing/src/policy_transforms.rs`: canonicalization يستخدم `project_to_localhost()`، و`resolve_permission_path` يُسقط إلى AbsolutePathBuf بفشل-مغلق.
+  - `core/src/config/permissions.rs` و`core/src/context/environment_context.rs` و`tui/src/bottom_pane/approval_overlay.rs`: العرض يستخدم `inferred_native_path_string()` بدل `to_string_lossy()`.
+  - `protocol/src/models.rs` (`LegacyReadWriteRoots`): ما زال يُسلسِل/يفك سلاسل مسارات native، لكن `as_legacy_permissions` يُسقط من PathUri بفشل-مغلق (يُرجع None للأجنبي فيلجأ JSON إلى الحقل `entries`).
+- ✅ **اختبار ثبات السلك**: أُضيف اختبار `file_system_path_serializes_as_native_path_string` في `permissions.rs` يؤكد أن JSON يُنتج `{"type":"path","path":"<native>"}` ويدور رحلة العودة بنفس الـ PathUri.
+- ✅ **تحديث عداد TODO**: TODO(anp) انخفض إلى 48 (−1 إضافي بإزالة تعليق الـ serde-shim).
+- ✅ **تحديث `scripts/repo-health-baseline.json`** لاستيعاب الأسطر المضافة (ملفات كانت فوق الحد أساساً).
+
+**ما تبقّى للمرحلة 0a:**
+- تحويل حقول `LegacyReadWriteRoots` نفسها (`read`/`write`) إلى `PathUri` مع نفس serde shim (حالياً تُحوَّل عند الإنتاج/الاستهلاك فقط، والحقل الداخلي ما زال `AbsolutePathBuf`).
+- استبدال السقوط الصامت `ok().unwrap_or_else(|| session.cwd())` في `core/src/session/turn_context.rs:823` بخطأ صريح (يتطلب تغيير نوع الإرجاع من `Arc<TurnContext>` إلى `Result` أو مسار مماثل؛ متبقي كبند أخير).
+- بعد ذلك تُغلَق المرحلة 0a وتبدأ المرحلة 0b (sandboxing manager).
+
+**ملاحظة التنفيذ:** الـ sandbox ما زال يمنع تنزيل toolchain Rust (TLS محجوب إلى `static.rust-lang.org` و`index.crates.io`)، لذا كل التعديلات مراجَعة يدوياً مقابل قواعد AGENTS.md وتحتاج جولة `just build` / `just test` / `just fmt` فور توفر الأداة.

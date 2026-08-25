@@ -145,7 +145,7 @@ fn workspace_write_with_read_only_root(read_only_root: AbsolutePathBuf) -> Permi
     let file_system_sandbox_policy = FileSystemSandboxPolicy::restricted(vec![
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: read_only_root,
+                path: read_only_root.into(),
             },
             access: FileSystemAccessMode::Read,
             missing_path_behavior: None,
@@ -169,7 +169,7 @@ fn workspace_write_with_unreadable_path(unreadable_path: AbsolutePathBuf) -> Per
     let file_system_sandbox_policy = FileSystemSandboxPolicy::restricted(vec![
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: unreadable_path,
+                path: unreadable_path.into(),
             },
             access: FileSystemAccessMode::Deny,
             missing_path_behavior: None,

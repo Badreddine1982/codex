@@ -214,7 +214,7 @@ async fn sandboxed_discovery_follows_only_permitted_external_symlinks() -> anyho
     let root_path = AbsolutePathBuf::from_absolute_path(root.path())?;
     let external_root = AbsolutePathBuf::from_absolute_path(external.path())?;
     let path_entry =
-        |path, access| FileSystemSandboxEntry::new(FileSystemPath::Path { path }, access);
+        |path, access| FileSystemSandboxEntry::new(FileSystemPath::Path { path: path.into() }, access);
     let read_root = path_entry(root_path, FileSystemAccessMode::Read);
     let read_external = path_entry(external_root.clone(), FileSystemAccessMode::Read);
     let deny_external_skill = path_entry(external_root.join("skill"), FileSystemAccessMode::Deny);

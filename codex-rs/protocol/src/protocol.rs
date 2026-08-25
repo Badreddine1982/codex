@@ -4730,7 +4730,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: blocked },
+                path: FileSystemPath::Path { path: blocked.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -4790,7 +4790,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: secret },
+                path: FileSystemPath::Path { path: secret.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -4854,12 +4854,12 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs },
+                path: FileSystemPath::Path { path: docs.into() },
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs_public },
+                path: FileSystemPath::Path { path: docs_public.into() },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
@@ -4895,7 +4895,7 @@ mod tests {
         };
         let policy = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: external_write_path,
+                path: external_write_path.into(),
             },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,

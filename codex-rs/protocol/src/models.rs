@@ -23,6 +23,7 @@ use crate::permissions::NetworkSandboxPolicy;
 use crate::protocol::SandboxPolicy;
 use crate::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_path_uri::PathUri;
 use codex_utils_image::ImageProcessingError;
 use schemars::JsonSchema;
 
@@ -137,9 +138,15 @@ impl FileSystemPermissions {
             let FileSystemPath::Path { path } = &entry.path else {
                 return None;
             };
+            // The legacy format can only express native absolute paths; any
+            // foreign-convention/foreign-host URI fails closed (returns None
+            // so the new-format entries field is serialized instead).
+            let Ok(abs_path) = path.project_to_localhost() else {
+                return None;
+            };
             match entry.access {
-                FileSystemAccessMode::Read => read.push(path.clone()),
-                FileSystemAccessMode::Write => write.push(path.clone()),
+                FileSystemAccessMode::Read => read.push(abs_path),
+                FileSystemAccessMode::Write => write.push(abs_path),
                 FileSystemAccessMode::Deny => return None,
             }
         }

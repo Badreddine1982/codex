@@ -56,6 +56,7 @@ use codex_protocol::request_permissions::PermissionGrantScope;
 use codex_protocol::request_permissions::RequestPermissionProfile;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::LegacyAppPathString;
+use codex_utils_path_uri::PathUri;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
@@ -987,7 +988,9 @@ fn format_file_system_entry_paths<'a>(
 ) -> String {
     entries
         .map(|entry| match &entry.path {
-            FileSystemPath::Path { path } => format!("`{path}`"),
+            FileSystemPath::Path { path } => {
+                format!("`{}`", path.inferred_native_path_string())
+            }
             FileSystemPath::GlobPattern { pattern } => format!("glob `{pattern}`"),
             FileSystemPath::Special { value } => format!("`{}`", special_path_label(value)),
         })

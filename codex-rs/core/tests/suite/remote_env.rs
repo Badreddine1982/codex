@@ -2411,7 +2411,7 @@ fn read_only_sandbox(readable_root: PathBuf) -> FileSystemSandboxContext {
     FileSystemSandboxContext::from_permission_profile(PermissionProfile::from_runtime_permissions(
         &FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: readable_root,
+                path: readable_root.into(),
             },
             access: FileSystemAccessMode::Read,
             missing_path_behavior: None,
@@ -2425,7 +2425,7 @@ fn workspace_write_sandbox(writable_root: PathBuf) -> FileSystemSandboxContext {
     FileSystemSandboxContext::from_permission_profile(PermissionProfile::from_runtime_permissions(
         &FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: writable_root,
+                path: writable_root.into(),
             },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,

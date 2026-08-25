@@ -5002,7 +5002,7 @@ async fn session_configuration_apply_preserves_profile_file_system_policy_on_cwd
             missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
-            path: FileSystemPath::Path { path: docs_dir },
+            path: FileSystemPath::Path { path: docs_dir.into() },
             access: FileSystemAccessMode::Read,
             missing_path_behavior: None,
         },
@@ -5109,7 +5109,7 @@ async fn session_configuration_apply_permission_profile_accepts_direct_write_roo
     let file_system_sandbox_policy =
         FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: external_write_path.clone(),
+                path:  external_write_path.clone().into(),
             },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,
@@ -5367,7 +5367,7 @@ async fn session_configuration_apply_preserves_absolute_cwd_write_root_on_cwd_up
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: original_cwd.clone(),
+                path:  original_cwd.clone().into(),
             },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,
@@ -6719,7 +6719,7 @@ async fn request_permissions_tool_resolves_relative_paths_against_selected_envir
         file_system: Some(FileSystemPermissions {
             entries: vec![FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: environment_cwd.join("relative.txt"),
+                    path:  environment_cwd.join("relative.txt").into(),
                 },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,

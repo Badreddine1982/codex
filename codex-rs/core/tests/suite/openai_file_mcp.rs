@@ -58,7 +58,7 @@ fn restrict_apps_upload_reads(config: &mut Config, denied_file_name: &str) {
             .expect("denied file path should be absolute");
     let mut file_system_policy = FileSystemSandboxPolicy::read_only();
     file_system_policy.entries.push(FileSystemSandboxEntry::new(
-        FileSystemPath::Path { path: denied_path },
+        FileSystemPath::Path { path: denied_path.into() },
         FileSystemAccessMode::Deny,
     ));
     config

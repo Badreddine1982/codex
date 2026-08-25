@@ -117,7 +117,7 @@ async fn extension_tool_receives_turn_environment_sandbox() -> Result<()> {
         .entries
         .push(FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: denied_path.clone(),
+                path:  denied_path.clone().into(),
             },
             access: FileSystemAccessMode::Deny,
             missing_path_behavior: None,

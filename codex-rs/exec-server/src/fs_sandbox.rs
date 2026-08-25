@@ -242,8 +242,11 @@ fn normalize_file_system_policy_root_aliases(file_system_policy: &mut FileSystem
     }
 }
 
-fn normalize_top_level_alias(path: AbsolutePathBuf) -> AbsolutePathBuf {
-    let raw_path = path.to_path_buf();
+fn normalize_top_level_alias(path: PathUri) -> PathUri {
+    let Ok(raw) = path.project_to_localhost() else {
+        return path;
+    };
+    let raw_path = raw.to_path_buf();
     for ancestor in raw_path.ancestors() {
         if std::fs::symlink_metadata(ancestor).is_err() {
             continue;
@@ -260,7 +263,7 @@ fn normalize_top_level_alias(path: AbsolutePathBuf) -> AbsolutePathBuf {
         if let Ok(normalized_path) =
             AbsolutePathBuf::from_absolute_path(normalized_ancestor.join(suffix))
         {
-            return normalized_path;
+            return normalized_path.into();
         }
     }
     path

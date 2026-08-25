@@ -1059,14 +1059,14 @@ mod tests {
             entries: vec![
                 FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: native_cwd.clone().try_into().expect("absolute cwd"),
+                        path:  native_cwd.clone().try_into().expect("absolute cwd").into(),
                     },
                     access: FileSystemAccessMode::Read,
                     missing_path_behavior: None,
                 },
                 FileSystemSandboxEntry::skip_missing_path(
                     FileSystemPath::Path {
-                        path: native_cwd.join(".git").try_into().expect("absolute path"),
+                        path:  native_cwd.join(".git").try_into().expect("absolute path").into(),
                     },
                     FileSystemAccessMode::Read,
                 ),
@@ -1137,7 +1137,7 @@ mod tests {
         let mut file_system_policy =
             FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: native_cwd.try_into().expect("absolute cwd"),
+                    path:  native_cwd.try_into().expect("absolute cwd").into(),
                 },
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,

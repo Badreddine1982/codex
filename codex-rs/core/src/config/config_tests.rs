@@ -2222,14 +2222,14 @@ async fn default_permissions_profile_populates_runtime_sandbox_policy() -> std::
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: cwd_root.clone(),
+                    path:  cwd_root.clone().into(),
                 },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: cwd_root.join("docs"),
+                    path:  cwd_root.join("docs").into(),
                 },
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
@@ -4433,7 +4433,7 @@ exclude_slash_tmp = true
                     file_system_policy
                         .entries
                         .contains(&FileSystemSandboxEntry {
-                            path: FileSystemPath::Path { path: cwd.abs() },
+                            path: FileSystemPath::Path { path:  cwd.abs().into()},
                             access: FileSystemAccessMode::Write,
                             missing_path_behavior: None,
                         })
@@ -4443,7 +4443,7 @@ exclude_slash_tmp = true
                         .entries
                         .contains(&FileSystemSandboxEntry {
                             path: FileSystemPath::Path {
-                                path: extra_root.clone(),
+                                path:  extra_root.clone().into(),
                             },
                             access: FileSystemAccessMode::Write,
                             missing_path_behavior: None,
@@ -4455,10 +4455,10 @@ exclude_slash_tmp = true
                             .entries
                             .contains(&FileSystemSandboxEntry {
                                 path: FileSystemPath::Path {
-                                    path: AbsolutePathBuf::resolve_path_against_base(
+                                    path:  AbsolutePathBuf::resolve_path_against_base(
                                         subpath,
                                         cwd.path()
-                                    ),
+                                    ).into(),
                                 },
                                 access: FileSystemAccessMode::Read,
                                 missing_path_behavior: Some(
@@ -10389,7 +10389,7 @@ async fn permission_profile_override_preserves_split_write_roots() -> std::io::R
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: outside_root.clone(),
+                path:  outside_root.clone().into(),
             },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,

@@ -96,13 +96,13 @@ async fn request_permissions_round_trip() -> Result<()> {
         Some(vec![
             codex_app_server_protocol::FileSystemSandboxEntry {
                 path: codex_app_server_protocol::FileSystemPath::Path {
-                    path: requested_writes[0].clone(),
+                    path:  requested_writes[0].clone().into(),
                 },
                 access: codex_app_server_protocol::FileSystemAccessMode::Write,
             },
             codex_app_server_protocol::FileSystemSandboxEntry {
                 path: codex_app_server_protocol::FileSystemPath::Path {
-                    path: requested_writes[1].clone(),
+                    path:  requested_writes[1].clone().into(),
                 },
                 access: codex_app_server_protocol::FileSystemAccessMode::Write,
             },
