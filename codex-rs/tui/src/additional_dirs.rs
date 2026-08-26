@@ -116,7 +116,7 @@ mod tests {
                     },
                     FileSystemSandboxEntry {
                         path: FileSystemPath::Path {
-                            path: "/tmp/writable".try_into().expect("absolute path"),
+                            path:  "/tmp/writable".try_into().expect("absolute path").into(),
                         },
                         access: FileSystemAccessMode::Write,
                         missing_path_behavior: None,

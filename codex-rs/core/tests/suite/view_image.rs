@@ -690,7 +690,7 @@ async fn view_image_tool_applies_local_sandbox_read_denies() -> anyhow::Result<(
         .entries
         .push(FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: denied_path.clone(),
+                path:  denied_path.clone().into(),
             },
             access: FileSystemAccessMode::Deny,
             missing_path_behavior: None,

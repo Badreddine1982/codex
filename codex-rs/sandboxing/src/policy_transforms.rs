@@ -12,6 +12,7 @@ use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::permissions::ReadDenyMatcher;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::canonicalize_preserving_symlinks;
+use codex_utils_path_uri::PathUri;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
@@ -36,9 +37,12 @@ pub fn normalize_additional_permissions(
                 }
                 let path = match entry.path {
                     FileSystemPath::Path { path } => FileSystemPath::Path {
-                        path: canonicalize_preserving_symlinks(path.as_path())
+                        path: path
+                            .project_to_localhost()
                             .ok()
-                            .and_then(|path| AbsolutePathBuf::from_absolute_path(path).ok())
+                            .and_then(|abs| canonicalize_preserving_symlinks(abs.as_path()).ok())
+                            .and_then(|p| AbsolutePathBuf::from_absolute_path(p).ok())
+                            .map(Into::into)
                             .unwrap_or(path),
                     },
                     FileSystemPath::GlobPattern { pattern } => {
@@ -381,7 +385,7 @@ fn materialize_cwd_dependent_entry(
 
 fn resolve_permission_path(path: &FileSystemPath, cwd: &Path) -> Option<AbsolutePathBuf> {
     match path {
-        FileSystemPath::Path { path } => Some(path.clone()),
+        FileSystemPath::Path { path } => path.project_to_localhost().ok(),
         FileSystemPath::GlobPattern { .. } => None,
         FileSystemPath::Special { value } => match value {
             FileSystemSpecialPath::Root => {

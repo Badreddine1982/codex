@@ -820,12 +820,30 @@ impl Session {
     ) -> Arc<TurnContext> {
         let turn_environments = self.services.turn_environments.snapshot().await;
         let primary_turn_environment = turn_environments.primary();
-        // TODO(anp): Migrate per-turn config and legacy TurnContext cwd consumers to PathUri so
-        // a foreign primary environment does not fall back to the session's host cwd.
-        let cwd = primary_turn_environment
-            .as_ref()
-            .and_then(|turn_environment| turn_environment.cwd().to_abs_path().ok())
-            .unwrap_or_else(|| session_configuration.cwd().clone());
+        let cwd = match primary_turn_environment.as_ref() {
+            Some(turn_environment) => {
+                match turn_environment.cwd().project_to_localhost() {
+                    Ok(abs) => abs,
+                    Err(err) => {
+                        // Fail-closed: the primary turn environment reports a cwd that is not
+                        // representable on this host. Rather than silently proceeding with the
+                        // session's host cwd (the previous behavior), surface the condition
+                        // explicitly and abort turn construction. Legacy consumers of
+                        // `TurnContext::cwd` still require an absolute host path, so a true
+                        // fix requires migrating them to PathUri (follow-up).
+                        tracing::error!(
+                            error = %err,
+                            "primary turn environment cwd is a foreign PathUri; cannot construct TurnContext"
+                        );
+                        panic!(
+                            "primary turn environment cwd is a foreign PathUri and cannot be \
+                             represented on this host: {err}"
+                        );
+                    }
+                }
+            }
+            None => session_configuration.cwd().clone(),
+        };
         let per_turn_config = self.build_per_turn_config(&session_configuration, cwd.clone());
         let model_info = self
             .services

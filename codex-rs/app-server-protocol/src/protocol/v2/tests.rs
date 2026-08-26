@@ -741,15 +741,9 @@ fn permissions_request_approval_uses_request_permission_profile() {
             network: Some(CoreNetworkPermissions {
                 enabled: Some(true),
             }),
-            file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                Some(vec![
-                    AbsolutePathBuf::try_from(PathBuf::from(read_only_path))
-                        .expect("path must be absolute"),
-                ]),
-                Some(vec![
-                    AbsolutePathBuf::try_from(PathBuf::from(read_write_path))
-                        .expect("path must be absolute"),
-                ]),
+            file_system: Some(CoreFileSystemPermissions::from_read_write_roots(Some(vec![(AbsolutePathBuf::try_from(PathBuf::from(read_only_path))
+                        .expect("path must be absolute")).into()]),Some(vec![(AbsolutePathBuf::try_from(PathBuf::from(read_write_path))
+                        .expect("path must be absolute")).into()]),
             )),
         }
     );
@@ -842,9 +836,7 @@ fn additional_file_system_permissions_preserves_canonical_entries() {
 fn additional_file_system_permissions_populates_entries_for_legacy_roots() {
     let read_only_path = absolute_path("read-only");
     let read_write_path = absolute_path("read-write");
-    let core_permissions = CoreFileSystemPermissions::from_read_write_roots(
-        Some(vec![read_only_path.clone()]),
-        Some(vec![read_write_path.clone()]),
+    let core_permissions = CoreFileSystemPermissions::from_read_write_roots(Some(vec![(read_only_path.clone()).into()]),Some(vec![(read_write_path.clone()).into()]),
     );
 
     let permissions = AdditionalFileSystemPermissions::from(core_permissions.clone());
@@ -964,15 +956,9 @@ fn permissions_request_approval_response_uses_granted_permission_profile_without
             network: Some(CoreNetworkPermissions {
                 enabled: Some(true),
             }),
-            file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                Some(vec![
-                    AbsolutePathBuf::try_from(PathBuf::from(read_only_path))
-                        .expect("path must be absolute"),
-                ]),
-                Some(vec![
-                    AbsolutePathBuf::try_from(PathBuf::from(read_write_path))
-                        .expect("path must be absolute"),
-                ]),
+            file_system: Some(CoreFileSystemPermissions::from_read_write_roots(Some(vec![(AbsolutePathBuf::try_from(PathBuf::from(read_only_path))
+                        .expect("path must be absolute")).into()]),Some(vec![(AbsolutePathBuf::try_from(PathBuf::from(read_write_path))
+                        .expect("path must be absolute")).into()]),
             )),
         }
     );

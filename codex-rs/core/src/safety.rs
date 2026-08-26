@@ -1,7 +1,3 @@
-use std::path::Component;
-use std::path::Path;
-use std::path::PathBuf;
-
 use codex_apply_patch::ApplyPatchAction;
 use codex_apply_patch::ApplyPatchFileChange;
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -54,9 +50,10 @@ pub fn assess_patch_safety(
             AskForApproval::Granular(granular_config) if !granular_config.sandbox_approval
         );
 
-    // Even though the patch appears to be constrained to writable paths, it is
-    // possible that paths in the patch are hard links to files outside the
-    // writable roots, so we should still run `apply_patch` in a sandbox in that case.
+    // Filesystem sandbox policies now operate on PathUri directly via
+    // `can_write_path_uri_with_cwd` / `get_writable_roots_for_path_uri`, which
+    // perform host projection internally and fail closed (deny) for
+    // foreign-host or foreign-convention URIs.
     if is_write_patch_constrained_to_writable_paths(action, file_system_sandbox_policy, cwd) {
         if matches!(
             permission_profile,
@@ -102,11 +99,16 @@ fn patch_rejection_reason(
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     cwd: &PathUri,
 ) -> &'static str {
-    let has_no_writable_roots = cwd.to_abs_path().is_ok_and(|cwd| {
-        file_system_sandbox_policy
-            .get_writable_roots_with_cwd(cwd.as_path())
-            .is_empty()
-    });
+    // A foreign cwd cannot be projected to localhost; we can't inspect writable
+    // roots, so fall back to the safer "outside project" rejection reason.
+    let has_no_writable_roots = cwd
+        .project_to_localhost()
+        .ok()
+        .is_some_and(|native_cwd| {
+            file_system_sandbox_policy
+                .get_writable_roots_with_cwd(native_cwd.as_path())
+                .is_empty()
+        });
     match permission_profile {
         PermissionProfile::Managed { .. }
             if !file_system_sandbox_policy.has_full_disk_write_access()
@@ -130,56 +132,21 @@ fn is_write_patch_constrained_to_writable_paths(
     if file_system_sandbox_policy.has_full_disk_write_access() {
         return true;
     }
-    // TODO(anp): Make filesystem sandbox policies operate on PathUri.
-    let Ok(native_cwd) = cwd.to_abs_path() else {
-        return false;
-    };
-    // Normalize a path by removing `.` and resolving `..` without touching the
-    // filesystem (works even if the file does not exist).
-    fn normalize(path: &Path) -> Option<PathBuf> {
-        let mut out = PathBuf::new();
-        for comp in path.components() {
-            match comp {
-                Component::ParentDir => {
-                    out.pop();
-                }
-                Component::CurDir => { /* skip */ }
-                other => out.push(other.as_os_str()),
-            }
-        }
-        Some(out)
-    }
-
-    // Determine whether `path` is inside **any** writable root. Both `path`
-    // and roots are converted to absolute, normalized forms before the
-    // prefix check.
-    let is_path_writable = |path: &PathUri| {
-        // TODO(anp): Make sandbox policy path checks accept PathUri without host projection.
-        let Ok(path) = path.to_abs_path() else {
-            return false;
-        };
-        let abs = path.into_path_buf();
-        let abs = match normalize(&abs) {
-            Some(v) => v,
-            None => return false,
-        };
-
-        file_system_sandbox_policy.can_write_path_with_cwd(&abs, &native_cwd)
-    };
-
+    // Sandbox policy path checks accept PathUri directly; host projection
+    // happens in the policy (fail closed for foreign-host/convention URIs).
     for (path, change) in action.changes() {
         match change {
             ApplyPatchFileChange::Add { .. } | ApplyPatchFileChange::Delete { .. } => {
-                if !is_path_writable(path) {
+                if !file_system_sandbox_policy.can_write_path_uri_with_cwd(path, cwd) {
                     return false;
                 }
             }
             ApplyPatchFileChange::Update { move_path, .. } => {
-                if !is_path_writable(path) {
+                if !file_system_sandbox_policy.can_write_path_uri_with_cwd(path, cwd) {
                     return false;
                 }
                 if let Some(dest) = move_path
-                    && !is_path_writable(dest)
+                    && !file_system_sandbox_policy.can_write_path_uri_with_cwd(dest, cwd)
                 {
                     return false;
                 }

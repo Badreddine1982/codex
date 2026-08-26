@@ -135,9 +135,7 @@ pub enum ExecFileSystemPath {
 impl From<FileSystemPath> for ExecFileSystemPath {
     fn from(value: FileSystemPath) -> Self {
         match value {
-            FileSystemPath::Path { path } => Self::Path {
-                path: PathUri::from_abs_path(&path),
-            },
+            FileSystemPath::Path { path } => Self::Path { path },
             FileSystemPath::GlobPattern { pattern } => Self::GlobPattern { pattern },
             FileSystemPath::Special { value } => Self::Special { value },
         }
@@ -149,9 +147,14 @@ impl TryFrom<ExecFileSystemPath> for FileSystemPath {
 
     fn try_from(value: ExecFileSystemPath) -> Result<Self, Self::Error> {
         Ok(match value {
-            ExecFileSystemPath::Path { path } => Self::Path {
-                path: path.to_abs_path()?,
-            },
+            ExecFileSystemPath::Path { path } => {
+                FileSystemPath::try_from_path_uri(path).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "foreign PathUri in ExecFileSystemPath cannot be represented on this host",
+                    )
+                })?
+            }
             ExecFileSystemPath::GlobPattern { pattern } => Self::GlobPattern { pattern },
             ExecFileSystemPath::Special { value } => Self::Special { value },
         })

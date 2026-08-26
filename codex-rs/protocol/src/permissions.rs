@@ -6,6 +6,10 @@ use std::path::PathBuf;
 
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::canonicalize_preserving_symlinks;
+use codex_utils_path_uri::ForeignPathError;
+use codex_utils_path_uri::LegacyAppPathString;
+use codex_utils_path_uri::PathConvention;
+use codex_utils_path_uri::PathUri;
 use globset::GlobBuilder;
 use globset::GlobMatcher;
 use schemars::JsonSchema;
@@ -68,6 +72,24 @@ pub fn forbidden_agent_metadata_write(
     }
 
     None
+}
+
+/// [`forbidden_agent_metadata_write`] for [`PathUri`] inputs. Returns `None`
+/// (fail-open for this check only when the path cannot be projected to the
+/// local host; the sandbox-level deny will still prevent writes via
+/// `can_write_path_uri_with_cwd`).
+pub fn forbidden_agent_metadata_write_uri(
+    path: &PathUri,
+    cwd: &PathUri,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+) -> Option<&'static str> {
+    let native_path = path.project_to_localhost().ok()?;
+    let native_cwd = cwd.project_to_localhost().ok()?;
+    forbidden_agent_metadata_write(
+        native_path.as_path(),
+        native_cwd.as_path(),
+        file_system_sandbox_policy,
+    )
 }
 
 #[derive(
@@ -366,8 +388,20 @@ enum InvalidDenyReadGlobBehavior {
 #[ts(tag = "type")]
 pub enum FileSystemPath {
     Path {
-        // TODO(anp): Use PathUri once permission paths no longer require native-path rollout serialization.
-        path: AbsolutePathBuf,
+        /// The underlying path URI. The stored URI is always representable as
+        /// a native absolute path on the current host (`project_to_localhost`
+        /// succeeds); the field is serialized via
+        /// [`serialize_path_uri_as_native_string`] and
+        /// [`deserialize_path_uri_from_native_string`] so the wire format
+        /// remains a native OS path string (design decision د.2 in
+        /// PATHURI_MIGRATION.md).
+        #[serde(
+            serialize_with = "serialize_path_uri_as_native_string",
+            deserialize_with = "deserialize_path_uri_from_native_string"
+        )]
+        #[schemars(with = "String")]
+        #[ts(type = "string")]
+        path: PathUri,
     },
     /// A git-style glob pattern. Pattern entries currently support
     /// FileSystemAccessMode::Deny only.
@@ -381,8 +415,162 @@ pub enum FileSystemPath {
 
 impl From<AbsolutePathBuf> for FileSystemPath {
     fn from(path: AbsolutePathBuf) -> Self {
-        Self::Path { path }
+        Self::Path { path: path.into() }
     }
+}
+
+impl From<PathUri> for FileSystemPath {
+    /// Convert a [`PathUri`] to a [`FileSystemPath::Path`] by projecting it
+    /// onto the local host's native path.
+    ///
+    /// # Panics
+    /// Panics when the URI is a foreign-host/foreign-convention URI that
+    /// cannot be represented as a local native path. Use
+    /// [`Self::try_from_path_uri`] for fallible construction (for example
+    /// when processing API input).
+    fn from(uri: PathUri) -> Self {
+        Self::try_from_path_uri(uri)
+            .expect("FileSystemPath::from<PathUri> called with a non-local PathUri; use try_from_path_uri for fallible construction")
+    }
+}
+
+impl FileSystemPath {
+    /// Fallible constructor from a [`PathUri`]. Returns `None` for foreign
+    /// URIs; callers processing untrusted input should use this and map the
+    /// error into a fail-closed result.
+    pub fn try_from_path_uri(uri: PathUri) -> Option<Self> {
+        uri.project_to_localhost().ok()?;
+        Some(Self::Path { path: uri })
+    }
+
+    /// Returns the [`PathUri`] for this path when it is a concrete local
+    /// path, or `None` for globs and special entries (which don't have a
+    /// single path URI).
+    pub fn as_path_uri(&self) -> Option<PathUri> {
+        match self {
+            Self::Path { path } => Some(path.clone()),
+            Self::GlobPattern { .. } | Self::Special { .. } => None,
+        }
+    }
+
+    /// Returns the local [`AbsolutePathBuf`] for this path when the stored
+    /// URI is representable on the current host; globs and special entries
+    /// return `None`. This is the single canonical projection point used by
+    /// the internal policy engine (design decision د.1 in PATHURI_MIGRATION.md).
+    pub fn as_local_abs_path(&self) -> Option<AbsolutePathBuf> {
+        match self {
+            Self::Path { path } => path.project_to_localhost().ok(),
+            Self::GlobPattern { .. } | Self::Special { .. } => None,
+        }
+    }
+}
+
+/// Serializes a [`PathUri`] field as a native OS path string, preserving the
+/// pre-migration wire format. Fails when the URI cannot be rendered under the
+/// current host's path convention (foreign-convention URIs are not
+/// serializable through the legacy wire and indicate a caller bug).
+pub(crate) fn serialize_path_uri_as_native_string<S>(
+    path: &PathUri,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let native = LegacyAppPathString::from_path_uri(path, PathConvention::native())
+        .map_err(serde::ser::Error::custom)?;
+    native.serialize(serializer)
+}
+
+/// Deserializes a legacy native OS path string back into a [`PathUri`]. The
+/// path is parsed under the current host's native path convention so
+/// round-tripping through [`serialize_path_uri_as_native_string`] is
+/// identity. Incoming foreign-convention strings are rejected to keep
+/// deserialization consistent with ser.
+pub(crate) fn deserialize_path_uri_from_native_string<'de, D>(
+    deserializer: D,
+) -> Result<PathUri, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let native = LegacyAppPathString::deserialize(deserializer)?;
+    native
+        .to_path_uri(PathConvention::native())
+        .map_err(serde::de::Error::custom)
+}
+
+/// Serializes a `Vec<PathUri>` as a JSON array of native path strings
+/// (companion to [`serialize_path_uri_as_native_string`]).
+pub(crate) fn serialize_path_uri_vec_as_native_strings<S>(
+    paths: &[PathUri],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+    let mut seq = serializer.serialize_seq(Some(paths.len()))?;
+    for path in paths {
+        let native = LegacyAppPathString::from_path_uri(path, PathConvention::native())
+            .map_err(serde::ser::Error::custom)?;
+        seq.serialize_element(&native)?;
+    }
+    seq.end()
+}
+
+/// Deserializes a `Vec<PathUri>` from an array of legacy native OS path
+/// strings (companion to [`deserialize_path_uri_from_native_string`]).
+pub(crate) fn deserialize_path_uri_vec_from_native_strings<'de, D>(
+    deserializer: D,
+) -> Result<Vec<PathUri>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let natives: Vec<LegacyAppPathString> = Vec::deserialize(deserializer)?;
+    natives
+        .into_iter()
+        .map(|native| {
+            native
+                .to_path_uri(PathConvention::native())
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
+}
+
+/// Serializes an `Option<Vec<PathUri>>` as an optional array of native path
+/// strings (used by `LegacyReadWriteRoots`).
+pub(crate) fn serialize_opt_path_uri_vec_as_native_strings<S>(
+    paths: &Option<Vec<PathUri>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match paths {
+        Some(paths) => serialize_path_uri_vec_as_native_strings(paths, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// Deserializes an `Option<Vec<PathUri>>` from an optional array of legacy
+/// native path strings (used by `LegacyReadWriteRoots`).
+pub(crate) fn deserialize_opt_path_uri_vec_from_native_strings<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<PathUri>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Vec<LegacyAppPathString>>::deserialize(deserializer)?
+        .map(|natives| {
+            natives
+                .into_iter()
+                .map(|native| {
+                    native
+                        .to_path_uri(PathConvention::native())
+                        .map_err(serde::de::Error::custom)
+                })
+                .collect()
+        })
+        .transpose()
 }
 
 const PROJECT_ROOTS_GLOB_PATTERN_PREFIX: &str = "codex-project-roots://";
@@ -741,6 +929,68 @@ impl FileSystemSandboxPolicy {
         !self.is_metadata_write_denied(path, cwd)
     }
 
+    /// [`Self::can_write_path_with_cwd`] for [`PathUri`] inputs; projects both
+    /// the candidate path and the cwd to localhost native paths, failing closed
+    /// (denying writes) for foreign-host/foreign-convention URIs.
+    ///
+    /// This is the safe entry point for permission/safety checks: callers no
+    /// longer need to hand-roll `to_abs_path()` projections and decide what to
+    /// do when they fail; foreign paths are treated as not writable.
+    pub fn can_write_path_uri_with_cwd(&self, path: &PathUri, cwd: &PathUri) -> bool {
+        let (Ok(native_path), Ok(native_cwd)) =
+            (path.project_to_localhost(), cwd.project_to_localhost())
+        else {
+            return false;
+        };
+        self.can_write_path_with_cwd(native_path.as_path(), native_cwd.as_path())
+    }
+
+    /// [`Self::can_read_path_with_cwd`] for [`PathUri`] inputs; fails closed
+    /// (denying reads) for foreign-host/foreign-convention URIs.
+    pub fn can_read_path_uri_with_cwd(&self, path: &PathUri, cwd: &PathUri) -> bool {
+        let (Ok(native_path), Ok(native_cwd)) =
+            (path.project_to_localhost(), cwd.project_to_localhost())
+        else {
+            return false;
+        };
+        self.can_read_path_with_cwd(native_path.as_path(), native_cwd.as_path())
+    }
+
+    /// [`Self::resolve_access_with_cwd`] for [`PathUri`] inputs; returns
+    /// [`FileSystemAccessMode::Deny`] for foreign URIs (fail closed).
+    pub fn resolve_access_for_path_uri_with_cwd(
+        &self,
+        path: &PathUri,
+        cwd: &PathUri,
+    ) -> FileSystemAccessMode {
+        let (Ok(native_path), Ok(native_cwd)) =
+            (path.project_to_localhost(), cwd.project_to_localhost())
+        else {
+            return FileSystemAccessMode::Deny;
+        };
+        self.resolve_access_with_cwd(native_path.as_path(), native_cwd.as_path())
+    }
+
+    /// Returns the writable roots for a [`PathUri`] cwd, or an empty `Vec` when
+    /// the cwd is foreign.
+    pub fn get_writable_roots_for_path_uri(&self, cwd: &PathUri) -> Vec<WritableRoot> {
+        if self.has_full_disk_write_access() {
+            return Vec::new();
+        }
+        let Ok(native_cwd) = cwd.project_to_localhost() else {
+            return Vec::new();
+        };
+        self.get_writable_roots_with_cwd(native_cwd.as_path())
+    }
+
+    /// Project a [`PathUri`] to a native absolute path, returning a descriptive
+    /// [`ForeignPathError`] when the URI is not local. Callers that already
+    /// intend to deny on foreign paths should prefer
+    /// [`Self::can_write_path_uri_with_cwd`] et al. which fail closed directly.
+    pub fn project_path_uri(path: &PathUri) -> Result<AbsolutePathBuf, ForeignPathError> {
+        path.project_to_localhost()
+    }
+
     fn is_metadata_write_denied(&self, path: &Path, cwd: &Path) -> bool {
         if !matches!(self.kind, FileSystemSandboxKind::Restricted) {
             return false;
@@ -931,7 +1181,11 @@ impl FileSystemSandboxPolicy {
         for path in additional_writable_roots {
             if !self.entries.iter().any(|entry| {
                 entry.access.can_write()
-                    && matches!(&entry.path, FileSystemPath::Path { path: existing } if existing == path)
+                    && matches!(
+                        &entry.path,
+                        FileSystemPath::Path { path: existing }
+                            if *existing == PathUri::from_abs_path(path)
+                    )
             }) {
                 self.entries.push(FileSystemSandboxEntry::new(
                     path.clone().into(),
@@ -1197,10 +1451,21 @@ impl FileSystemSandboxPolicy {
                         FileSystemPath::GlobPattern { .. } => {}
                         FileSystemPath::Path { path } => {
                             if entry.access.can_write() {
-                                if cwd_absolute.as_ref().is_some_and(|cwd| cwd == path) {
+                                let Some(abs_path) = path.project_to_localhost().ok() else {
+                                    // Fail closed: a non-local URI should never
+                                    // have been stored in a policy being
+                                    // converted to a legacy WorkspaceWrite;
+                                    // treat it as an unbridgeable write.
+                                    unbridgeable_root_write = true;
+                                    continue;
+                                };
+                                if cwd_absolute
+                                    .as_ref()
+                                    .is_some_and(|cwd| cwd == &abs_path)
+                                {
                                     workspace_root_writable = true;
                                 } else {
-                                    writable_roots.push(path.clone());
+                                    writable_roots.push(abs_path);
                                 }
                             }
                         }
@@ -1346,7 +1611,7 @@ fn resolve_file_system_path(
     cwd: Option<&AbsolutePathBuf>,
 ) -> Option<AbsolutePathBuf> {
     match path {
-        FileSystemPath::Path { path } => Some(path.clone()),
+        FileSystemPath::Path { path } => path.project_to_localhost().ok(),
         FileSystemPath::GlobPattern { .. } => None,
         FileSystemPath::Special { value } => resolve_file_system_special_path(value, cwd),
     }
@@ -1436,18 +1701,19 @@ fn special_paths_share_target(left: &FileSystemSpecialPath, right: &FileSystemSp
     }
 }
 
-/// Matches cwd-independent special paths against absolute `Path` entries when
-/// they name the same location.
+/// Matches cwd-independent special paths against concrete path-URI entries
+/// when they name the same location on the local host.
 ///
-/// We intentionally only fold the special paths whose concrete meaning is
+/// Foreign-host/foreign-convention URIs fail closed (return `false`). We
+/// intentionally only fold the special paths whose concrete meaning is
 /// stable without a cwd, such as `/` and `/tmp`.
-fn special_path_matches_absolute_path(
-    value: &FileSystemSpecialPath,
-    path: &AbsolutePathBuf,
-) -> bool {
+fn special_path_matches_absolute_path(value: &FileSystemSpecialPath, path: &PathUri) -> bool {
+    let Ok(abs_path) = path.project_to_localhost() else {
+        return false;
+    };
     match value {
-        FileSystemSpecialPath::Root => path.as_path().parent().is_none(),
-        FileSystemSpecialPath::SlashTmp => path.as_path() == Path::new("/tmp"),
+        FileSystemSpecialPath::Root => abs_path.as_path().parent().is_none(),
+        FileSystemSpecialPath::SlashTmp => abs_path.as_path() == Path::new("/tmp"),
         _ => false,
     }
 }
@@ -2174,7 +2440,7 @@ mod tests {
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: explicit_dot_codex.clone(),
+                    path:  explicit_dot_codex.clone().into(),
                 },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
@@ -2215,7 +2481,7 @@ mod tests {
         let root = AbsolutePathBuf::from_absolute_path(cwd.path()).expect("absolute cwd");
         let file_system_policy =
             FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: root },
+                path: FileSystemPath::Path { path: root.into() },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             }]);
@@ -2290,7 +2556,7 @@ mod tests {
             .into_iter()
             .map(|path| {
                 FileSystemSandboxEntry::skip_missing_path(
-                    FileSystemPath::Path { path },
+                    FileSystemPath::Path { path: path.into() },
                     FileSystemAccessMode::Read,
                 )
             }),
@@ -2342,12 +2608,12 @@ mod tests {
 
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_root },
+                path: FileSystemPath::Path { path: link_root.into() },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_blocked },
+                path: FileSystemPath::Path { path: link_blocked.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -2412,7 +2678,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_blocked },
+                path: FileSystemPath::Path { path: link_blocked.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -2470,7 +2736,7 @@ mod tests {
                 .expect("absolute canonical decoy");
 
         let policy = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
-            path: FileSystemPath::Path { path: root },
+            path: FileSystemPath::Path { path: root.into() },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,
         }]);
@@ -2511,12 +2777,12 @@ mod tests {
 
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_root },
+                path: FileSystemPath::Path { path: link_root.into() },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_private },
+                path: FileSystemPath::Path { path: link_private.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -2560,12 +2826,12 @@ mod tests {
 
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_root },
+                path: FileSystemPath::Path { path: link_root.into() },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_private },
+                path: FileSystemPath::Path { path: link_private.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -2604,12 +2870,12 @@ mod tests {
 
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: root },
+                path: FileSystemPath::Path { path: root.into() },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: alias },
+                path: FileSystemPath::Path { path: alias.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -2671,7 +2937,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: link_blocked },
+                path: FileSystemPath::Path { path: link_blocked.into() },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
@@ -2713,20 +2979,20 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs.clone() },
+                path: FileSystemPath::Path { path:  docs.clone().into()},
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: docs_private.clone(),
+                    path:  docs_private.clone().into(),
                 },
                 access: FileSystemAccessMode::Deny,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
-                    path: docs_private_public.clone(),
+                    path:  docs_private_public.clone().into(),
                 },
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
@@ -2764,7 +3030,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs },
+                path: FileSystemPath::Path { path: docs.into() },
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
             },
@@ -2852,7 +3118,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs.clone() },
+                path: FileSystemPath::Path { path:  docs.clone().into()},
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
             },
@@ -2892,7 +3158,7 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs.clone() },
+                path: FileSystemPath::Path { path:  docs.clone().into()},
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
             },
@@ -2952,12 +3218,12 @@ mod tests {
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs.clone() },
+                path: FileSystemPath::Path { path:  docs.clone().into()},
                 access: FileSystemAccessMode::Read,
                 missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path: docs.clone() },
+                path: FileSystemPath::Path { path:  docs.clone().into()},
                 access: FileSystemAccessMode::Write,
                 missing_path_behavior: None,
             },
@@ -3035,7 +3301,7 @@ mod tests {
                     missing_path_behavior: None,
                 },
                 FileSystemSandboxEntry {
-                    path: FileSystemPath::Path { path: extra },
+                    path: FileSystemPath::Path { path: extra.into() },
                     access: FileSystemAccessMode::Write,
                     missing_path_behavior: None,
                 },
@@ -3082,28 +3348,28 @@ mod tests {
             FileSystemSandboxPolicy::restricted(vec![
                 FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: first.clone(),
+                        path:  first.clone().into(),
                     },
                     access: FileSystemAccessMode::Write,
                     missing_path_behavior: None,
                 },
                 FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: second.clone(),
+                        path:  second.clone().into(),
                     },
                     access: FileSystemAccessMode::Write,
                     missing_path_behavior: None,
                 },
                 FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: first.join(".git"),
+                        path:  first.join(".git").into(),
                     },
                     access: FileSystemAccessMode::Read,
                     missing_path_behavior: None,
                 },
                 FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: second.join(".git"),
+                        path:  second.join(".git").into(),
                     },
                     access: FileSystemAccessMode::Read,
                     missing_path_behavior: None,
@@ -3192,15 +3458,13 @@ mod tests {
                 },
                 FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: extra.clone()
-                    },
+                        path:  extra.clone().into()},
                     access: FileSystemAccessMode::Write,
                     missing_path_behavior: None,
                 },
                 FileSystemSandboxEntry::skip_missing_path(
                     FileSystemPath::Path {
-                        path: extra.join(".git")
-                    },
+                        path:  extra.join(".git").into()},
                     FileSystemAccessMode::Read,
                 ),
             ])
@@ -3218,7 +3482,7 @@ mod tests {
         let denied = AbsolutePathBuf::try_from("/tmp/private").expect("absolute path");
         let existing = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: denied.clone(),
+                path:  denied.clone().into(),
             },
             access: FileSystemAccessMode::Deny,
             missing_path_behavior: None,
@@ -3234,7 +3498,7 @@ mod tests {
             rebuilt.entries.iter().any(|entry| {
                 entry.path
                     == FileSystemPath::Path {
-                        path: denied.clone(),
+                        path:  denied.clone().into(),
                     }
                     && entry.access == FileSystemAccessMode::Deny
             }),
@@ -3268,7 +3532,7 @@ mod tests {
     fn deny_policy(path: &Path) -> FileSystemSandboxPolicy {
         FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: AbsolutePathBuf::try_from(path).expect("absolute deny path"),
+                path:  AbsolutePathBuf::try_from(path).expect("absolute deny path").into(),
             },
             access: FileSystemAccessMode::Deny,
             missing_path_behavior: None,
@@ -3420,5 +3684,41 @@ mod tests {
 
         assert!(is_read_denied(&bracket_file, &policy, temp.path()));
         assert!(!is_read_denied(&other, &policy, temp.path()));
+    }
+
+    // Wire-format stability: FileSystemPath::Path serializes as a plain native
+    // path string (not a file:// URI) and round-trips back to the same PathUri.
+    // This protects the Phase-0a serde shim (design decision د.2 in
+    // PATHURI_MIGRATION.md) — any change here must be reflected in the v3
+    // cutover plan.
+    #[test]
+    fn file_system_path_serializes_as_native_path_string() {
+        let abs = if cfg!(windows) {
+            AbsolutePathBuf::from_absolute_path("C:\\Users\\alice\\repo").expect("absolute")
+        } else {
+            AbsolutePathBuf::from_absolute_path("/home/alice/repo").expect("absolute")
+        };
+        let expected_native = if cfg!(windows) {
+            r"C:\Users\alice\repo"
+        } else {
+            "/home/alice/repo"
+        };
+        let path = FileSystemPath::Path { path: abs.into() };
+        let json = serde_json::to_value(&path).expect("serialize");
+        assert_eq!(json["type"], "path");
+        assert_eq!(json["path"], expected_native);
+
+        // Round-trip: deserializing the legacy native-path JSON yields a Path
+        // variant whose PathUri projects back to the same absolute path.
+        let reparsed: FileSystemPath = serde_json::from_value(json).expect("deserialize");
+        match reparsed {
+            FileSystemPath::Path { path } => {
+                let round_tripped = path
+                    .project_to_localhost()
+                    .expect("should project to localhost");
+                assert_eq!(round_tripped, abs);
+            }
+            other => panic!("expected Path variant, got {other:?}"),
+        }
     }
 }

@@ -90,9 +90,7 @@ fn workspace_write_excluding_tmp() -> PermissionProfile {
 
 fn requested_directory_write_permissions(path: &Path) -> RequestPermissionProfile {
     RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![absolute_path(path)]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![absolute_path(path).into()]),
         )),
         ..RequestPermissionProfile::default()
     }
@@ -100,9 +98,7 @@ fn requested_directory_write_permissions(path: &Path) -> RequestPermissionProfil
 
 fn normalized_directory_write_permissions(path: &Path) -> Result<RequestPermissionProfile> {
     Ok(RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![AbsolutePathBuf::try_from(path.canonicalize()?)?]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(AbsolutePathBuf::try_from(path.canonicalize()?)?).into()]),
         )),
         ..RequestPermissionProfile::default()
     })

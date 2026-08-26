@@ -315,9 +315,7 @@ fn app_server_request_permissions_preserves_file_system_permissions() {
             network: Some(NetworkPermissions {
                 enabled: Some(true),
             }),
-            file_system: Some(FileSystemPermissions::from_read_write_roots(
-                Some(vec![read_path]),
-                Some(vec![write_path]),
+            file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![(read_path).into()]),Some(vec![(write_path).into()]),
             )),
         }
     );

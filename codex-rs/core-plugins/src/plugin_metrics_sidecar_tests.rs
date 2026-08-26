@@ -32,7 +32,7 @@ fn sidecar_is_created_in_system_temp_with_private_permissions() {
         roots,
         LegacyReadWriteRoots {
             read: None,
-            write: Some(vec![sidecar.absolute_output_dir]),
+            write: Some(vec![PathUri::from(sidecar.absolute_output_dir.clone())]),
         }
     );
 }

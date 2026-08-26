@@ -1111,3 +1111,35 @@ fn to_url_returns_the_validated_url() {
         Url::parse("file:///workspace/a%20file.rs").expect("valid URL")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn project_to_localhost_round_trips_local_posix_path() {
+    let path = AbsolutePathBuf::current_dir()
+        .expect("current directory")
+        .join("src/lib.rs");
+    let uri = PathUri::from_abs_path(&path);
+    assert_eq!(
+        uri.project_to_localhost().expect("local path should project"),
+        path,
+    );
+}
+
+#[test]
+fn project_to_localhost_rejects_foreign_host_uri() {
+    let uri = PathUri::parse("file://server/share/file.txt").expect("valid UNC URI");
+    assert!(matches!(
+        uri.project_to_localhost(),
+        Err(ForeignPathError::ForeignHost(_)),
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn project_to_localhost_rejects_windows_uri_on_posix() {
+    let uri = PathUri::parse("file:///C:/windows/path").expect("valid Windows URI");
+    assert!(matches!(
+        uri.project_to_localhost(),
+        Err(ForeignPathError::ForeignConvention { .. }),
+    ));
+}

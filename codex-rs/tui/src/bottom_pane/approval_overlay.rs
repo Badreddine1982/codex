@@ -56,6 +56,7 @@ use codex_protocol::request_permissions::PermissionGrantScope;
 use codex_protocol::request_permissions::RequestPermissionProfile;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::LegacyAppPathString;
+use codex_utils_path_uri::PathUri;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
@@ -987,7 +988,9 @@ fn format_file_system_entry_paths<'a>(
 ) -> String {
     entries
         .map(|entry| match &entry.path {
-            FileSystemPath::Path { path } => format!("`{path}`"),
+            FileSystemPath::Path { path } => {
+                format!("`{}`", path.inferred_native_path_string())
+            }
             FileSystemPath::GlobPattern { pattern } => format!("glob `{pattern}`"),
             FileSystemPath::Special { value } => format!("`{}`", special_path_label(value)),
         })
@@ -1234,9 +1237,7 @@ mod tests {
                 network: Some(NetworkPermissions {
                     enabled: Some(true),
                 }),
-                file_system: Some(FileSystemPermissions::from_read_write_roots(
-                    Some(vec![absolute_path("/tmp/readme.txt")]),
-                    Some(vec![absolute_path("/tmp/out.txt")]),
+                file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                 )),
             },
         })
@@ -1819,9 +1820,7 @@ mod tests {
         let additional_permissions = AdditionalPermissionProfile {
             network: None,
             file_system: Some(
-                FileSystemPermissions::from_read_write_roots(
-                    Some(vec![absolute_path("/tmp/readme.txt")]),
-                    Some(vec![absolute_path("/tmp/out.txt")]),
+                FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                 )
                 .into(),
             ),
@@ -2033,9 +2032,7 @@ mod tests {
                     enabled: Some(true),
                 }),
                 file_system: Some(
-                    FileSystemPermissions::from_read_write_roots(
-                        Some(vec![absolute_path("/tmp/readme.txt")]),
-                        Some(vec![absolute_path("/tmp/out.txt")]),
+                    FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                     )
                     .into(),
                 ),
@@ -2090,9 +2087,7 @@ mod tests {
                     enabled: Some(true),
                 }),
                 file_system: Some(
-                    FileSystemPermissions::from_read_write_roots(
-                        Some(vec![absolute_path("/tmp/readme.txt")]),
-                        Some(vec![absolute_path("/tmp/out.txt")]),
+                    FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path("/tmp/readme.txt").into()]),Some(vec![absolute_path("/tmp/out.txt").into()]),
                     )
                     .into(),
                 ),

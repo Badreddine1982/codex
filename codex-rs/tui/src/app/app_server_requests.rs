@@ -594,9 +594,7 @@ mod tests {
                         network: Some(NetworkPermissions {
                             enabled: Some(true),
                         }),
-                        file_system: Some(FileSystemPermissions::from_read_write_roots(
-                            Some(vec![absolute_path(read_path)]),
-                            Some(vec![absolute_path(write_path)]),
+                        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![absolute_path(read_path).into()]),Some(vec![absolute_path(write_path).into()]),
                         )),
                     },
                     scope: codex_protocol::request_permissions::PermissionGrantScope::Session,

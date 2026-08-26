@@ -2987,9 +2987,7 @@ mod tests {
             network: Some(CoreNetworkPermissions {
                 enabled: Some(true),
             }),
-            file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                Some(vec![absolute_path(input_path)]),
-                Some(vec![absolute_path(output_path)]),
+            file_system: Some(CoreFileSystemPermissions::from_read_write_roots(Some(vec![absolute_path(input_path).into()]),Some(vec![absolute_path(output_path).into()]),
             )),
         };
         let cases = vec![
@@ -3018,8 +3016,7 @@ mod tests {
                 }),
                 CoreRequestPermissionProfile {
                     file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                        /*read*/ None,
-                        Some(vec![absolute_path(output_path)]),
+                        /*read*/ None,Some(vec![absolute_path(output_path).into()]),
                     )),
                     ..CoreRequestPermissionProfile::default()
                 },
@@ -3035,9 +3032,7 @@ mod tests {
                     },
                 }),
                 CoreRequestPermissionProfile {
-                    file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                        Some(vec![absolute_path(input_path)]),
-                        Some(vec![absolute_path(output_path)]),
+                    file_system: Some(CoreFileSystemPermissions::from_read_write_roots(Some(vec![absolute_path(input_path).into()]),Some(vec![absolute_path(output_path).into()]),
                     )),
                     ..CoreRequestPermissionProfile::default()
                 },
@@ -3181,8 +3176,7 @@ mod tests {
             response.permissions,
             CoreRequestPermissionProfile {
                 file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                    /*read*/ None,
-                    Some(vec![child]),
+                    /*read*/ None,Some(vec![(child).into()]),
                 )),
                 ..Default::default()
             }
@@ -3238,8 +3232,7 @@ mod tests {
         let child = cwd.join("child");
         let requested_permissions = CoreRequestPermissionProfile {
             file_system: Some(CoreFileSystemPermissions::from_read_write_roots(
-                /*read*/ None,
-                Some(vec![child]),
+                /*read*/ None,Some(vec![(child).into()]),
             )),
             ..Default::default()
         };

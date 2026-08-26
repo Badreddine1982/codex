@@ -23,6 +23,9 @@ use crate::permissions::NetworkSandboxPolicy;
 use crate::protocol::SandboxPolicy;
 use crate::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_path_uri::LegacyAppPathString;
+use codex_utils_path_uri::PathConvention;
+use codex_utils_path_uri::PathUri;
 use codex_utils_image::ImageProcessingError;
 use schemars::JsonSchema;
 
@@ -85,10 +88,20 @@ pub struct FileSystemPermissions {
 #[derive(Debug, Clone, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LegacyReadWriteRoots {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub read: Option<Vec<AbsolutePathBuf>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub write: Option<Vec<AbsolutePathBuf>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::permissions::serialize_opt_path_uri_vec_as_native_strings",
+        deserialize_with = "crate::permissions::deserialize_opt_path_uri_vec_from_native_strings"
+    )]
+    pub read: Option<Vec<PathUri>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::permissions::serialize_opt_path_uri_vec_as_native_strings",
+        deserialize_with = "crate::permissions::deserialize_opt_path_uri_vec_from_native_strings"
+    )]
+    pub write: Option<Vec<PathUri>>,
 }
 
 impl FileSystemPermissions {
@@ -97,23 +110,25 @@ impl FileSystemPermissions {
     }
 
     pub fn from_read_write_roots(
-        read: Option<Vec<AbsolutePathBuf>>,
-        write: Option<Vec<AbsolutePathBuf>>,
+        read: Option<Vec<PathUri>>,
+        write: Option<Vec<PathUri>>,
     ) -> Self {
         let mut entries = Vec::new();
         if let Some(read) = read {
-            entries.extend(
-                read.into_iter().map(|path| {
-                    FileSystemSandboxEntry::new(path.into(), FileSystemAccessMode::Read)
-                }),
-            );
+            entries.extend(read.into_iter().map(|path| {
+                FileSystemSandboxEntry::new(
+                    FileSystemPath::Path { path },
+                    FileSystemAccessMode::Read,
+                )
+            }));
         }
         if let Some(write) = write {
-            entries.extend(
-                write.into_iter().map(|path| {
-                    FileSystemSandboxEntry::new(path.into(), FileSystemAccessMode::Write)
-                }),
-            );
+            entries.extend(write.into_iter().map(|path| {
+                FileSystemSandboxEntry::new(
+                    FileSystemPath::Path { path },
+                    FileSystemAccessMode::Write,
+                )
+            }));
         }
         Self {
             entries,
@@ -135,6 +150,12 @@ impl FileSystemPermissions {
 
         for entry in &self.entries {
             let FileSystemPath::Path { path } = &entry.path else {
+                return None;
+            };
+            // The legacy format can only express native absolute paths; any
+            // foreign-convention/foreign-host URI fails closed (returns None
+            // so the new-format entries field is serialized instead).
+            let Ok(_) = path.project_to_localhost() else {
                 return None;
             };
             match entry.access {
@@ -2298,9 +2319,41 @@ mod tests {
     use super::*;
     use anyhow::Result;
     use codex_execpolicy::Policy;
+    use codex_utils_path_uri::PathUri;
     use pretty_assertions::assert_eq;
+    use serde_json::json;
     use std::path::PathBuf;
     use tempfile::tempdir;
+
+    #[test]
+    fn legacy_read_write_roots_serialize_as_native_path_strings() {
+        // Phase 0a wire-compat invariant: `LegacyReadWriteRoots.read`/`.write`
+        // are `PathUri` in memory but serialize as plain native path strings on
+        // the wire, matching the pre-migration schema.
+        let tmp = tempdir().expect("tempdir");
+        let read_path = tmp.path().join("read");
+        let write_path = tmp.path().join("write");
+        std::fs::create_dir_all(&read_path).expect("create read dir");
+        std::fs::create_dir_all(&write_path).expect("create write dir");
+        let read_abs = AbsolutePathBuf::from_absolute_path(&read_path).expect("abs read");
+        let write_abs = AbsolutePathBuf::from_absolute_path(&write_path).expect("abs write");
+
+        let roots = LegacyReadWriteRoots {
+            read: Some(vec![PathUri::from(read_abs.clone())]),
+            write: Some(vec![PathUri::from(write_abs.clone())]),
+        };
+        let json = serde_json::to_value(&roots).expect("serialize");
+        assert_eq!(
+            json,
+            json!({
+                "read": [read_abs.to_string_lossy().into_owned()],
+                "write": [write_abs.to_string_lossy().into_owned()],
+            })
+        );
+        let round_tripped: LegacyReadWriteRoots =
+            serde_json::from_value(json.clone()).expect("deserialize");
+        assert_eq!(roots, round_tripped);
+    }
 
     // A tiny valid PNG (1x1) so image conversion tests don't depend on cross-crate
     // file paths, which break under Bazel sandboxing.

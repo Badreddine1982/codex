@@ -21,6 +21,7 @@ use codex_protocol::request_permissions::RequestPermissionProfile as CoreRequest
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::LegacyAppPathString;
 use codex_utils_path_uri::PathConvention;
+use codex_utils_path_uri::PathUri;
 use serde::Deserialize;
 use serde::Serialize;
 use std::io;
@@ -53,6 +54,78 @@ impl From<CoreNetworkApprovalContext> for NetworkApprovalContext {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Legacy <-> core path conversion helpers
+//
+// These shared helpers replace seven previously-duplicated conversion blocks
+// for translating between the v2 API's legacy string-based path representation
+// (`LegacyAppPathString`) and the core types (`AbsolutePathBuf`/`PathUri`).
+//
+// They remain necessary because the v2 wire format still carries paths as
+// native strings (matching today's clients); once core permission types store
+// PathUri end-to-end (Phase 0a completion in protocol), these helpers will
+// collapse into a simple `From`/`Into` pair.
+// ---------------------------------------------------------------------------
+
+/// Convert a v2 legacy path string to a core [`PathUri`], enforcing the local
+/// native path convention. Returns an `io::Error` for foreign or
+/// non-representable paths (fail-closed at the API boundary).
+fn legacy_path_to_uri(path: LegacyAppPathString) -> io::Result<PathUri> {
+    path.to_path_uri(PathConvention::native())
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
+}
+
+/// Convert a core [`PathUri`] to a v2 legacy path string under the local
+/// native convention. Foreign URIs return an `io::Error` (fail-closed)
+/// because the v2 wire only carries native paths.
+fn uri_to_legacy_path(path: &PathUri) -> io::Result<LegacyAppPathString> {
+    LegacyAppPathString::from_path_uri(path, PathConvention::native())
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
+}
+
+fn core_path_to_v2(path: CoreFileSystemPath) -> io::Result<FileSystemPath> {
+    Ok(match path {
+        CoreFileSystemPath::Path { path } => FileSystemPath::Path {
+            path: uri_to_legacy_path(&path)?,
+        },
+        CoreFileSystemPath::GlobPattern { pattern } => FileSystemPath::GlobPattern { pattern },
+        CoreFileSystemPath::Special { value } => FileSystemPath::Special {
+            value: value.into(),
+        },
+    })
+}
+
+fn v2_path_to_core(path: FileSystemPath) -> io::Result<CoreFileSystemPath> {
+    Ok(match path {
+        FileSystemPath::Path { path } => CoreFileSystemPath::Path {
+            path: legacy_path_to_uri(path)?,
+        },
+        FileSystemPath::GlobPattern { pattern } => CoreFileSystemPath::GlobPattern { pattern },
+        FileSystemPath::Special { value } => CoreFileSystemPath::Special {
+            value: value.into(),
+        },
+    })
+}
+
+fn core_entry_to_v2(entry: CoreFileSystemSandboxEntry) -> io::Result<FileSystemSandboxEntry> {
+    Ok(FileSystemSandboxEntry {
+        path: core_path_to_v2(entry.path)?,
+        access: entry.access.into(),
+    })
+}
+
+fn v2_entry_to_core(entry: FileSystemSandboxEntry) -> io::Result<CoreFileSystemSandboxEntry> {
+    Ok(CoreFileSystemSandboxEntry {
+        path: v2_path_to_core(entry.path)?,
+        access: entry.access.to_core(),
+        missing_path_behavior: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// AdditionalFileSystemPermissions
+// ---------------------------------------------------------------------------
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
@@ -69,7 +142,6 @@ pub struct AdditionalFileSystemPermissions {
     pub entries: Option<Vec<FileSystemSandboxEntry>>,
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
     fn from(value: CoreFileSystemPermissions) -> Self {
         if let Some(LegacyReadWriteRoots { read, write }) = value.legacy_read_write_roots() {
@@ -79,7 +151,9 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
             if let Some(paths) = read.as_ref() {
                 entries.extend(paths.iter().map(|path| FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: LegacyAppPathString::from_abs_path(path),
+                        path: uri_to_legacy_path(path).expect(
+                            "core permission path should be representable on the local host",
+                        ),
                     },
                     access: FileSystemAccessMode::Read,
                 }));
@@ -87,7 +161,9 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
             if let Some(paths) = write.as_ref() {
                 entries.extend(paths.iter().map(|path| FileSystemSandboxEntry {
                     path: FileSystemPath::Path {
-                        path: LegacyAppPathString::from_abs_path(path),
+                        path: uri_to_legacy_path(path).expect(
+                            "core permission path should be representable on the local host",
+                        ),
                     },
                     access: FileSystemAccessMode::Write,
                 }));
@@ -96,13 +172,21 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
                 read: read.map(|paths| {
                     paths
                         .iter()
-                        .map(LegacyAppPathString::from_abs_path)
+                        .map(|p| {
+                            uri_to_legacy_path(p).expect(
+                                "core permission path should be representable on the local host",
+                            )
+                        })
                         .collect()
                 }),
                 write: write.map(|paths| {
                     paths
                         .iter()
-                        .map(LegacyAppPathString::from_abs_path)
+                        .map(|p| {
+                            uri_to_legacy_path(p).expect(
+                                "core permission path should be representable on the local host",
+                            )
+                        })
                         .collect()
                 }),
                 glob_scan_max_depth: None,
@@ -117,7 +201,11 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
                     value
                         .entries
                         .into_iter()
-                        .map(FileSystemSandboxEntry::from)
+                        .map(|e| {
+                            core_entry_to_v2(e).expect(
+                                "core permission path should be representable on the local host",
+                            )
+                        })
                         .collect(),
                 ),
             }
@@ -125,7 +213,6 @@ impl From<CoreFileSystemPermissions> for AdditionalFileSystemPermissions {
     }
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl TryFrom<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
     type Error = io::Error;
 
@@ -134,7 +221,7 @@ impl TryFrom<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
             Self {
                 entries: entries
                     .into_iter()
-                    .map(CoreFileSystemSandboxEntry::try_from)
+                    .map(v2_entry_to_core)
                     .collect::<io::Result<_>>()?,
                 glob_scan_max_depth: None,
             }
@@ -144,11 +231,7 @@ impl TryFrom<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
                 .map(|paths| {
                     paths
                         .into_iter()
-                        .map(|path| {
-                            path.to_path_uri(PathConvention::native())
-                                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?
-                                .to_abs_path()
-                        })
+                        .map(legacy_path_to_uri)
                         .collect::<io::Result<Vec<_>>>()
                 })
                 .transpose()?;
@@ -157,11 +240,7 @@ impl TryFrom<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
                 .map(|paths| {
                     paths
                         .into_iter()
-                        .map(|path| {
-                            path.to_path_uri(PathConvention::native())
-                                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?
-                                .to_abs_path()
-                        })
+                        .map(legacy_path_to_uri)
                         .collect::<io::Result<Vec<_>>>()
                 })
                 .transpose()?;
@@ -204,7 +283,6 @@ pub struct RequestPermissionProfile {
     pub file_system: Option<AdditionalFileSystemPermissions>,
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl From<CoreRequestPermissionProfile> for RequestPermissionProfile {
     fn from(value: CoreRequestPermissionProfile) -> Self {
         Self {
@@ -297,49 +375,38 @@ impl From<FileSystemSpecialPath> for CoreFileSystemSpecialPath {
     }
 }
 
+/// v2 wire-format filesystem path.
+///
+/// NOTE: This type shares a name with `codex_protocol::permissions::FileSystemPath`
+/// (the core type). Files that import both should rename one at the use site,
+/// e.g. `use codex_protocol::permissions::FileSystemPath as CoreFileSystemPath;`,
+/// which is already the convention in this file. A rename to a distinct v2
+/// name (e.g. `V2FileSystemPath`) is deferred to a follow-up PR so the
+/// generated TypeScript filename can be updated in lockstep with downstream
+/// consumers.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type")]
 #[ts(export_to = "v2/")]
-// TODO(anp): Rename this type to distinguish it from the protocol FileSystemPath.
 pub enum FileSystemPath {
     Path { path: LegacyAppPathString },
     GlobPattern { pattern: String },
     Special { value: FileSystemSpecialPath },
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl From<CoreFileSystemPath> for FileSystemPath {
     fn from(value: CoreFileSystemPath) -> Self {
-        match value {
-            CoreFileSystemPath::Path { path } => Self::Path {
-                path: LegacyAppPathString::from_abs_path(&path),
-            },
-            CoreFileSystemPath::GlobPattern { pattern } => Self::GlobPattern { pattern },
-            CoreFileSystemPath::Special { value } => Self::Special {
-                value: value.into(),
-            },
-        }
+        core_path_to_v2(value).expect(
+            "core permission path should be representable on the local host",
+        )
     }
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl TryFrom<FileSystemPath> for CoreFileSystemPath {
     type Error = io::Error;
 
     fn try_from(value: FileSystemPath) -> Result<Self, Self::Error> {
-        Ok(match value {
-            FileSystemPath::Path { path } => Self::Path {
-                path: path
-                    .to_path_uri(PathConvention::native())
-                    .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?
-                    .to_abs_path()?,
-            },
-            FileSystemPath::GlobPattern { pattern } => Self::GlobPattern { pattern },
-            FileSystemPath::Special { value } => Self::Special {
-                value: value.into(),
-            },
-        })
+        v2_path_to_core(value)
     }
 }
 
@@ -351,13 +418,11 @@ pub struct FileSystemSandboxEntry {
     pub access: FileSystemAccessMode,
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl From<CoreFileSystemSandboxEntry> for FileSystemSandboxEntry {
     fn from(value: CoreFileSystemSandboxEntry) -> Self {
-        Self {
-            path: value.path.into(),
-            access: value.access.into(),
-        }
+        core_entry_to_v2(value).expect(
+            "core permission path should be representable on the local host",
+        )
     }
 }
 
@@ -365,11 +430,7 @@ impl TryFrom<FileSystemSandboxEntry> for CoreFileSystemSandboxEntry {
     type Error = io::Error;
 
     fn try_from(value: FileSystemSandboxEntry) -> Result<Self, Self::Error> {
-        Ok(Self {
-            path: value.path.try_into()?,
-            access: value.access.to_core(),
-            missing_path_behavior: None,
-        })
+        v2_entry_to_core(value)
     }
 }
 
@@ -463,7 +524,6 @@ pub struct AdditionalPermissionProfile {
     pub file_system: Option<AdditionalFileSystemPermissions>,
 }
 
-// TODO(anp): Remove this conversion once core permission paths use PathUri.
 impl From<CoreAdditionalPermissionProfile> for AdditionalPermissionProfile {
     fn from(value: CoreAdditionalPermissionProfile) -> Self {
         Self {
@@ -542,6 +602,10 @@ pub enum SandboxPolicy {
     },
     #[serde(rename_all = "camelCase")]
     #[ts(rename_all = "camelCase")]
+    // TODO(anp): [v3-pathuri] Move `writable_roots` from `AbsolutePathBuf` to
+    // `FileSystemPath::Path` (LegacyAppPathString) once v3 settles the wire
+    // representation for foreign paths; kept as AbsolutePathBuf in this Epic
+    // to avoid a breaking wire-format change.
     WorkspaceWrite {
         #[serde(default)]
         writable_roots: Vec<AbsolutePathBuf>,
@@ -767,6 +831,9 @@ pub struct PermissionsRequestApprovalParams {
     /// Unix timestamp (in milliseconds) when this approval request started.
     #[ts(type = "number")]
     pub started_at_ms: i64,
+    // TODO(anp): [v3-pathuri] Switch `cwd` to `FileSystemPath::Path` (a
+    // LegacyAppPathString) once v3 settles the wire representation; kept as
+    // AbsolutePathBuf in this Epic to avoid a breaking client change.
     pub cwd: AbsolutePathBuf,
     pub reason: Option<String>,
     pub permissions: RequestPermissionProfile,

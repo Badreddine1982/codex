@@ -2582,7 +2582,7 @@ mod tests {
                         missing_path_behavior: None,
                     },
                     FileSystemSandboxEntry {
-                        path: FileSystemPath::Path { path: extra_root },
+                        path: FileSystemPath::Path { path: extra_root.into() },
                         access: FileSystemAccessMode::Write,
                         missing_path_behavior: None,
                     },

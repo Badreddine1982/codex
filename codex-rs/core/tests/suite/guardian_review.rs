@@ -477,7 +477,7 @@ async fn guardian_session_is_reused_for_consecutive_tool_reviews_without_prewarm
                 /*exclude_slash_tmp*/ true,
             );
             file_system_policy.entries.push(FileSystemSandboxEntry::new(
-                FileSystemPath::Path { path: secret_file },
+                FileSystemPath::Path { path: secret_file.into() },
                 FileSystemAccessMode::Deny,
             ));
             config

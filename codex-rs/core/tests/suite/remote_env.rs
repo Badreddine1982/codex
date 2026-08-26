@@ -2411,7 +2411,7 @@ fn read_only_sandbox(readable_root: PathBuf) -> FileSystemSandboxContext {
     FileSystemSandboxContext::from_permission_profile(PermissionProfile::from_runtime_permissions(
         &FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: readable_root,
+                path: readable_root.into(),
             },
             access: FileSystemAccessMode::Read,
             missing_path_behavior: None,
@@ -2425,7 +2425,7 @@ fn workspace_write_sandbox(writable_root: PathBuf) -> FileSystemSandboxContext {
     FileSystemSandboxContext::from_permission_profile(PermissionProfile::from_runtime_permissions(
         &FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: writable_root,
+                path: writable_root.into(),
             },
             access: FileSystemAccessMode::Write,
             missing_path_behavior: None,
@@ -2794,9 +2794,7 @@ async fn remote_request_permissions_grant_unblocks_later_remote_exec() -> Result
         .await?;
 
     let expected_permissions = RequestPermissionProfile {
-        file_system: Some(FileSystemPermissions::from_read_write_roots(
-            Some(vec![]),
-            Some(vec![remote_write_root.clone()]),
+        file_system: Some(FileSystemPermissions::from_read_write_roots(Some(vec![]),Some(vec![(remote_write_root.clone()).into()]),
         )),
         ..RequestPermissionProfile::default()
     };

@@ -213,8 +213,7 @@ async fn guardian_approved_request_permissions_clears_status_without_history() {
         reason: Some("Need write access for generated report assets.".to_string()),
         permissions: RequestPermissionProfile {
             file_system: Some(FileSystemPermissions::from_read_write_roots(
-                /*read*/ None,
-                Some(vec![test_path_buf("/tmp/reports").abs()]),
+                /*read*/ None,Some(vec![(test_path_buf("/tmp/reports").abs()).into()]),
             )),
             ..RequestPermissionProfile::default()
         },
